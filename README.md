@@ -1,5 +1,8 @@
 # Creative Studio
 
+AI-powered creative writing and manga generation app —
+Creative Studio で漫画・小説・PDF を制作できる統合ツール。
+
 漫画と小説の両方を制作できる統合 Web アプリ。構想は [本まとめ/Creative_Studio_構想書.md](本まとめ/Creative_Studio_構想書.md) を参照。
 
 ## 技術構成
