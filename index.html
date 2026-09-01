@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Manga Creative Studio</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --text: #1f2430;
+    --text-sub: #666e7d;
+    --border: #e4e7ec;
+    --assist: #0f9d8f;
+    --assist-bg: #e8f7f5;
+    --gen: #5b5bd6;
+    --gen-bg: #ececfb;
+    --radius: 16px;
+    --shadow: 0 1px 2px rgba(16,24,40,.04), 0 8px 24px rgba(16,24,40,.06);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- ヘッダー ---------- */
+  header {
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    padding: 20px 24px;
+  }
+  .header-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .logo {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--assist), var(--gen));
+    flex: none;
+  }
+  .app-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: .02em;
+  }
+  .app-sub {
+    font-size: 13px;
+    color: var(--text-sub);
+    margin: 0;
+    width: 100%;
+  }
+
+  /* ---------- レイアウト ---------- */
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+    align-items: start;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 28px;
+  }
+  .card + .card { margin-top: 0; }
+
+  .badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+  }
+  .assist .badge { background: var(--assist-bg); color: var(--assist); }
+  .gen .badge { background: var(--gen-bg); color: var(--gen); }
+
+  .assist { border-top: 4px solid var(--assist); }
+  .gen { border-top: 4px solid var(--gen); }
+
+  h2 {
+    font-size: 20px;
+    margin: 0 0 8px;
+  }
+  .lead {
+    font-size: 14px;
+    color: var(--text-sub);
+    margin: 0 0 24px;
+  }
+
+  /* ---------- フォーム ---------- */
+  .field { margin-bottom: 22px; }
+  label.field-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--text-sub);
+    margin: 6px 0 0;
+  }
+
+  select, textarea, input[type="text"] {
+    width: 100%;
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: #fbfbfc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    outline: none;
+  }
+  select { appearance: none; background-image: none; cursor: pointer; }
+  textarea { resize: vertical; min-height: 96px; line-height: 1.6; }
+  select:focus, textarea:focus { border-color: #b9bdd6; background: #fff; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  /* ---------- アップロード欄 ---------- */
+  .upload {
+    border: 2px dashed #d4d8e0;
+    border-radius: 12px;
+    background: #fbfbfc;
+    padding: 28px 16px;
+    text-align: center;
+    cursor: pointer;
+    display: block;
+  }
+  .upload:hover { border-color: var(--assist); background: #f7fdfc; }
+  .upload-icon { font-size: 26px; }
+  .upload-main { font-size: 14px; font-weight: 700; margin-top: 6px; }
+  .upload-sub { font-size: 12px; color: var(--text-sub); margin-top: 4px; }
+  .upload input { display: none; }
+
+  /* ---------- ボタン ---------- */
+  .btn {
+    width: 100%;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: transform .05s ease, filter .15s ease;
+  }
+  .btn:hover { filter: brightness(1.07); }
+  .btn:active { transform: translateY(1px); }
+  .btn-assist { background: var(--assist); box-shadow: 0 6px 16px rgba(15,157,143,.28); }
+  .btn-gen { background: var(--gen); box-shadow: 0 6px 16px rgba(91,91,214,.28); }
+
+  /* ---------- 出力エリア ---------- */
+  .result-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-sub);
+    margin: 28px 0 10px;
+  }
+  .result {
+    background: var(--assist-bg);
+    border: 1px solid #cdeae6;
+    border-radius: 12px;
+    padding: 18px 20px;
+    font-size: 14px;
+  }
+  .result p { margin: 0 0 8px; font-weight: 700; }
+  .result ul { margin: 0; padding-left: 1.2em; }
+  .result li { margin-bottom: 6px; }
+  .result li:last-child { margin-bottom: 0; }
+
+  /* ---------- プレビュー ---------- */
+  .preview-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .preview-card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fbfbfc;
+    padding: 14px;
+  }
+  .preview-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+  .preview-page { font-weight: 700; }
+  .preview-panels { color: var(--text-sub); font-size: 12px; }
+  .preview-box {
+    border: 1px dashed #c9cdd8;
+    border-radius: 8px;
+    background: repeating-linear-gradient(45deg, #f2f3f6, #f2f3f6 10px, #eceef3 10px, #eceef3 20px);
+    aspect-ratio: 3 / 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-align: center;
+    padding: 12px;
+  }
+  .preview-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gen);
+    background: #fff;
+    border-radius: 999px;
+    padding: 3px 12px;
+  }
+  .preview-text {
+    font-size: 12px;
+    color: var(--text-sub);
+  }
+
+  footer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-sub);
+    padding: 0 24px 40px;
+  }
+
+  /* ---------- タブレット ---------- */
+  @media (max-width: 1024px) {
+    main { grid-template-columns: 1fr; gap: 24px; }
+  }
+
+  /* ---------- スマホ ---------- */
+  @media (max-width: 640px) {
+    main { padding: 20px 16px 48px; gap: 20px; }
+    .card { padding: 20px; border-radius: 14px; }
+    h2 { font-size: 18px; }
+    .row { grid-template-columns: 1fr; gap: 14px; }
+    .preview-grid { grid-template-columns: 1fr; }
+    header { padding: 16px; }
+    .app-title { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo"></div>
+    <h1 class="app-title">Manga Creative Studio</h1>
+    <p class="app-sub">漫画制作のアイデア整理から、完成イメージの生成までをサポートするアプリです。</p>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ 1. 企画・アイデア出しアシスタント ============ -->
+  <section class="card assist">
+    <span class="badge">1. アシスタント機能</span>
+    <h2>企画・アイデア出しアシスタント</h2>
+    <p class="lead">ラフ画像、キャラ設定、あらすじ、コマ割りのアイデアをもとに、漫画制作の方向性を一緒に整理します。</p>
+
+    <div class="field">
+      <label class="field-label" for="rough-file">ラフ画像のアップロード</label>
+      <label class="upload" for="rough-file">
+        <div class="upload-icon">🖼️</div>
+        <div class="upload-main" id="upload-main">画像をドラッグ＆ドロップ</div>
+        <div class="upload-sub">またはクリックしてファイルを選択（PNG / JPG）</div>
+        <input type="file" id="rough-file" accept="image/*" />
+      </label>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="consult-type">相談したい内容</label>
+      <select id="consult-type">
+        <option>ラフ画像の改善案がほしい</option>
+        <option>手書きラフからセリフを考えたい</option>
+        <option>キャラ設定を相談したい</option>
+        <option>あらすじを相談したい</option>
+        <option>コマ割りや構図を相談したい</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="consult-text">相談内容の詳細</label>
+      <textarea id="consult-text" rows="4" placeholder="例：主人公は高校生で、異世界に迷い込む設定です。1ページ目の展開を相談したいです。"></textarea>
+    </div>
+
+    <button class="btn btn-assist" type="button">アイデアを相談する</button>
+
+    <p class="result-title">アシスタントからの回答</p>
+    <div class="result">
+      <p>改善案：</p>
+      <ul>
+        <li>主人公の表情をもう少し大きく見せると感情が伝わりやすくなります。</li>
+        <li>1コマ目は状況説明、2コマ目は驚き、3コマ目は次の展開への引きを作ると読みやすくなります。</li>
+        <li>セリフは短めにして、絵で感情が伝わる構成にすると漫画らしさが出ます。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ 2. 漫画生成 ============ -->
+  <section class="card gen">
+    <span class="badge">2. 生成機能</span>
+    <h2>漫画生成</h2>
+    <p class="lead">ストーリーやコマ数を指定して、漫画の完成イメージを生成します。</p>
+
+    <div class="field">
+      <label class="field-label" for="story">ストーリー</label>
+      <textarea id="story" rows="5" placeholder="例：内気な主人公が、放課後の教室で不思議なノートを見つける。ノートに名前を書くと、描いたキャラクターが現実に現れる。"></textarea>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label class="field-label" for="page-count">出力枚数</label>
+        <select id="page-count">
+          <option value="1">1枚</option>
+          <option value="2">2枚</option>
+          <option value="4" selected>4枚</option>
+          <option value="8">8枚</option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="panel-count">1ページあたりのコマ数</label>
+        <select id="panel-count">
+          <option value="1">1コマ</option>
+          <option value="2">2コマ</option>
+          <option value="4" selected>4コマ</option>
+          <option value="6">6コマ</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="mood">漫画の雰囲気</label>
+      <select id="mood">
+        <option>少年漫画風</option>
+        <option>少女漫画風</option>
+        <option>ギャグ漫画風</option>
+        <option>ファンタジー風</option>
+        <option>日常漫画風</option>
+      </select>
+      <p class="hint">選んだ雰囲気に合わせた画風で、ページ全体のイメージを生成します。</p>
+    </div>
+
+    <button class="btn btn-gen" type="button" id="generate-btn">漫画を生成する</button>
+
+    <p class="result-title">生成結果プレビュー</p>
+    <div class="preview-grid" id="preview-grid"></div>
+  </section>
+
+</main>
+
+<footer>これはモックアップです。実際の画像生成・API連携は行われません。</footer>
+
+<script>
+  // ラフ画像：選択されたファイル名を表示するだけのモック挙動
+  var fileInput = document.getElementById('rough-file');
+  fileInput.addEventListener('change', function () {
+    var name = fileInput.files && fileInput.files[0] ? fileInput.files[0].name : '画像をドラッグ＆ドロップ';
+    document.getElementById('upload-main').textContent = name;
+  });
+
+  // プレビュー枠：出力枚数・コマ数の選択に合わせて枠を並べ直すだけのモック挙動
+  var grid = document.getElementById('preview-grid');
+
+  function renderPreview() {
+    var pages = parseInt(document.getElementById('page-count').value, 10);
+    var panels = document.getElementById('panel-count').value;
+    var html = '';
+    for (var i = 1; i <= pages; i++) {
+      html +=
+        '<div class="preview-card">' +
+          '<div class="preview-head">' +
+            '<span class="preview-page">Page ' + i + '</span>' +
+            '<span class="preview-panels">' + panels + 'コマ構成</span>' +
+          '</div>' +
+          '<div class="preview-box">' +
+            '<span class="preview-label">画像生成プレビュー</span>' +
+            '<span class="preview-text">ここに生成された漫画画像が表示されます</span>' +
+          '</div>' +
+        '</div>';
+    }
+    grid.innerHTML = html;
+  }
+
+  document.getElementById('generate-btn').addEventListener('click', renderPreview);
+  renderPreview();
+</script>
+
+</body>
+</html>

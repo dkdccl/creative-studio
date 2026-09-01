@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+/*
+ * height:100% は body を viewport 高さに固定してしまい、
+ * 中身がはみ出したときにスクロール中の背景が欠ける。
+ * 高さは layout.tsx の min-h-screen 側で担保する。
+ */
+body {
+  min-height: 100%;
+}
+
+body {
+  /* 紫 → 黒のベースグラデーション（各ページで上書き可） */
+  @apply bg-black text-white antialiased;
+  font-family:
+    'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Noto Sans JP', 'Yu Gothic',
+    system-ui, -apple-system, sans-serif;
+}
