@@ -1,5 +1,6 @@
-import { redirect } from 'next/navigation'
+import SelectMode from './select-mode';
 
+// ルートページ（/）は select-mode コンポーネントを直接表示する
 export default function Page() {
-  redirect('/select-mode')
+  return <SelectMode />;
 }
