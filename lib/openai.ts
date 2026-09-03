@@ -23,6 +23,37 @@ export type ImageSize =
 export type ImageQuality = 'standard' | 'hd';
 export type ImageStyle = 'vivid' | 'natural';
 
+export interface GenerateTextOptions {
+  /** 役割の指示 */
+  system: string;
+  /** 実際に書かせたい内容 */
+  user: string;
+}
+
+/**
+ * テキストを生成する。モデルは OPENAI_TEXT_MODEL で切り替える。
+ *
+ * temperature や max_tokens は送っていない。モデルによって受け付ける引数が違い、
+ * 対応していないものを送ると Unknown parameter で 400 になるため、
+ * 長さの指定はプロンプトの中で伝えている。
+ */
+export async function generateText({
+  system,
+  user,
+}: GenerateTextOptions): Promise<string> {
+  const openai = getOpenAIClient();
+
+  const response = await openai.chat.completions.create({
+    model: config.openai.textModel,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+  });
+
+  return response.choices[0]?.message?.content?.trim() ?? '';
+}
+
 export interface GenerateImageOptions {
   /** 生成したい絵の説明（日本語可） */
   prompt: string;

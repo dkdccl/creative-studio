@@ -27,6 +27,7 @@ export const config = {
   openai: {
     apiKey: resolve(process.env.OPENAI_API_KEY),
     imageModel: resolve(process.env.OPENAI_IMAGE_MODEL) ?? 'gpt-image-1',
+    textModel: resolve(process.env.OPENAI_TEXT_MODEL) ?? 'gpt-5.5',
   },
   siteUrl: resolve(process.env.NEXT_PUBLIC_SITE_URL) ?? 'http://localhost:3000',
   env: process.env.NODE_ENV,

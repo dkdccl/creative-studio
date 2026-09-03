@@ -21,6 +21,7 @@ import {
 } from '@/lib/types';
 import type { EpisodeRecord } from '@/lib/series';
 import { InlineBodyEditor } from './inline-body-editor';
+import { NovelGenerateModal } from './novel-generate-modal';
 import { PreviousEpisodePanel } from './previous-episode-panel';
 import {
   MangaSceneInsertModal,
@@ -57,6 +58,7 @@ export function StepEditor({
     ordered[0]?.id ?? null,
   );
   const [insertKind, setInsertKind] = useState<SceneBlockKind | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
 
   // マーカーを差し込む位置。本文全体から見たカーソル位置を覚えておく
   const cursorRef = useRef(ordered[0]?.body.length ?? 0);
@@ -144,6 +146,15 @@ export function StepEditor({
       photos: draft.photos,
       caption: draft.caption,
     }));
+
+  /** AI が書いた本文をカーソル位置に差し込む */
+  const insertGeneratedText = (text: string) => {
+    if (!selected || !text) return;
+    patchSelected({
+      body: insertMarkerAt(selected.body, cursorRef.current, text),
+    });
+    setAiOpen(false);
+  };
 
   /** 該当 ID のブロックだけ配列から外す。本文のマーカーはそのまま残す */
   const deleteBlock = (blockId: string) => {
@@ -298,6 +309,13 @@ export function StepEditor({
               <div className="mt-4 flex flex-wrap items-center gap-4">
                 <button
                   type="button"
+                  onClick={() => setAiOpen(true)}
+                  className="h-11 w-[150px] rounded-xl bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] text-lg font-bold text-white shadow-lg shadow-purple-900/30 transition-all hover:from-violet-400 hover:to-violet-500 hover:shadow-[0_0_28px_-6px_rgba(139,92,246,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+                >
+                  ✍️ AIで本文
+                </button>
+                <button
+                  type="button"
                   onClick={() => setInsertKind('manga')}
                   className="h-11 w-[150px] rounded-xl bg-gradient-to-br from-[#EF4444] to-[#DC2626] text-lg font-bold text-white shadow-lg shadow-red-900/30 transition-all hover:from-red-400 hover:to-red-500 hover:shadow-[0_0_28px_-6px_rgba(239,68,68,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
                 >
@@ -345,6 +363,22 @@ export function StepEditor({
 
       {selected && (
         <>
+          <NovelGenerateModal
+            open={aiOpen}
+            theme={theme}
+            sceneTitle={selected.title}
+            sceneSummary={selected.summary}
+            characters={
+              selected.characterIds.length > 0
+                ? characters.filter((c) =>
+                    selected.characterIds.includes(c.id),
+                  )
+                : characters
+            }
+            currentBody={selected.body}
+            onInsert={insertGeneratedText}
+            onClose={() => setAiOpen(false)}
+          />
           <MangaSceneInsertModal
             open={insertKind === 'manga'}
             markerPreview={blockMarker(
