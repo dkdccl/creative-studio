@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-
 import { generateImage, isOpenAIConfigured } from '@/lib/openai';
 import { buildMangaGenerationPrompt, clampPages } from '@/lib/scene-blocks';
 
@@ -7,11 +6,8 @@ export const runtime = 'nodejs';
 
 /**
  * POST /api/manga/generate
- * body: { story: string, pages: number, mood: string }
+ * body: { story: string, pages: number, mood: string | string[] }
  * 200: { url: string, prompt: string, revisedPrompt?: string }
- *
- * DALL-E は 1 リクエストにつき 1 枚を返すので、
- * 「何ページ分か」はプロンプトの中で伝えている。
  */
 export async function POST(request: Request) {
   if (!isOpenAIConfigured) {
@@ -21,7 +17,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: { story?: string; pages?: number; mood?: string };
+  let body: { story?: string; pages?: number; mood?: string | string[] };
   try {
     body = await request.json();
   } catch {
@@ -39,7 +35,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const mood = body.mood?.trim();
+  // mood が配列または文字列に対応
+  let mood = '';
+  if (Array.isArray(body.mood)) {
+    mood = body.mood
+      .filter((m) => typeof m === 'string' && m.trim().length > 0)
+      .map((m) => m.trim())
+      .join(', ');
+  } else if (typeof body.mood === 'string') {
+    mood = body.mood.trim();
+  }
+
   if (!mood) {
     return NextResponse.json(
       { error: '漫画の雰囲気を選んでください。' },
@@ -51,7 +57,6 @@ export async function POST(request: Request) {
   const prompt = buildMangaGenerationPrompt({ story, pages, mood });
 
   try {
-    // 3x2 のコマ割りに合わせて横長で生成する
     const images = await generateImage({ prompt, size: '1792x1024' });
     const image = images[0];
     if (!image) {
