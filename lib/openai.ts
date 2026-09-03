@@ -1,16 +1,6 @@
 import 'server-only';
-
 import OpenAI from 'openai';
-
 import { assertOpenAIConfig, config } from './config';
-
-/**
- * OpenAI（DALL-E）セットアップ。
- *
- * OPENAI_API_KEY はサーバー専用の秘匿情報なので、
- * このモジュールは Server Component / Route Handler からのみ import すること
- * （'server-only' でクライアントからの誤 import をビルド時に検出する）。
- */
 
 let client: OpenAI | null = null;
 
@@ -53,20 +43,27 @@ export interface GeneratedImage {
 export async function generateImage({
   prompt,
   size = '1024x1024',
-  quality = 'standard',
-  style = 'vivid',
+  quality,  // ← デフォルト値なし（呼び出し側が明示したときだけ送る）
+  style,    // ← デフォルト値なし（呼び出し側が明示したときだけ送る）
   n = 1,
 }: GenerateImageOptions): Promise<GeneratedImage[]> {
   const openai = getOpenAIClient();
   const model = config.openai.imageModel;
 
-  const response = await openai.images.generate({
+  const requestBody: any = {
     model,
     prompt,
     n: model === 'dall-e-3' ? 1 : n,
     size,
-    ...(model === 'dall-e-3' ? { quality, style } : {}),
-  });
+  };
+
+  // DALL-E 3 のときだけ、呼び出し側が明示したら quality / style を追加
+  if (model === 'dall-e-3') {
+    if (quality !== undefined) requestBody.quality = quality;
+    if (style !== undefined) requestBody.style = style;
+  }
+
+  const response = await openai.images.generate(requestBody);
 
   return (response.data ?? [])
     .filter((image): image is { url: string; revised_prompt?: string } =>
