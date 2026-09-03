@@ -14,7 +14,12 @@ export function getOpenAIClient(): OpenAI {
   return client;
 }
 
-export type ImageSize = '1024x1024' | '1024x1792' | '1792x1024';
+export type ImageSize =
+  | '1024x1024'
+  | '1024x1792'
+  | '1792x1024'
+  | '1024x1536'
+  | '1536x1024';
 export type ImageQuality = 'standard' | 'hd';
 export type ImageStyle = 'vivid' | 'natural';
 
@@ -23,42 +28,49 @@ export interface GenerateImageOptions {
   prompt: string;
   /** 出力サイズ。コマ割りに合わせて縦長/横長も選べる */
   size?: ImageSize;
+  /** dall-e-3 のときだけ有効。指定しなければ送らない */
   quality?: ImageQuality;
+  /** dall-e-3 のときだけ有効。指定しなければ送らない */
   style?: ImageStyle;
   /** 一度に生成する枚数（dall-e-3 は 1 枚のみ） */
   n?: number;
 }
 
 export interface GeneratedImage {
-  /** 画像 URL（有効期限あり。永続化するなら Supabase Storage へ保存する） */
+  /**
+   * 画像 URL。dall-e 系は有効期限つきの https URL、
+   * gpt-image 系は base64 を data URL に変換したもの。
+   * 永続化するなら Supabase Storage へ保存する。
+   */
   url: string;
   /** DALL-E 側で書き換えられた実際のプロンプト */
   revisedPrompt?: string;
 }
 
 /**
- * DALL-E で画像を生成する。
+ * 画像を生成する。モデルは OPENAI_IMAGE_MODEL で切り替える。
  * 返る URL は一時的なものなので、保存が必要なら別途ダウンロードすること。
  */
 export async function generateImage({
   prompt,
   size = '1024x1024',
-  quality,  // ← デフォルト値なし（呼び出し側が明示したときだけ送る）
-  style,    // ← デフォルト値なし（呼び出し側が明示したときだけ送る）
+  quality,
+  style,
   n = 1,
 }: GenerateImageOptions): Promise<GeneratedImage[]> {
   const openai = getOpenAIClient();
   const model = config.openai.imageModel;
+  const isDallE3 = model === 'dall-e-3';
 
   const requestBody: any = {
     model,
     prompt,
-    n: model === 'dall-e-3' ? 1 : n,
+    n: isDallE3 ? 1 : n,
     size,
   };
 
-  // DALL-E 3 のときだけ、呼び出し側が明示したら quality / style を追加
-  if (model === 'dall-e-3') {
+  // quality / style は dall-e-3 専用。他のモデルに送ると Unknown parameter で 400 になる
+  if (isDallE3) {
     if (quality !== undefined) requestBody.quality = quality;
     if (style !== undefined) requestBody.style = style;
   }
@@ -66,11 +78,12 @@ export async function generateImage({
   const response = await openai.images.generate(requestBody);
 
   return (response.data ?? [])
-    .filter((image): image is { url: string; revised_prompt?: string } =>
-      Boolean(image.url),
-    )
-    .map((image) => ({
-      url: image.url,
-      revisedPrompt: image.revised_prompt,
-    }));
+    .map((image): GeneratedImage | null => {
+      // gpt-image 系は URL を返さず常に base64。<img> にそのまま渡せる data URL にする
+      const url =
+        image.url ??
+        (image.b64_json ? `data:image/png;base64,${image.b64_json}` : undefined);
+      return url ? { url, revisedPrompt: image.revised_prompt } : null;
+    })
+    .filter((image): image is GeneratedImage => image !== null);
 }
