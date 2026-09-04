@@ -256,6 +256,10 @@ export function NovelStudio() {
             scenes={project.scenes}
             characters={project.characters}
             theme={project.theme}
+            imageStyle={project.imageStyle}
+            onImageStyleChange={(imageStyle) =>
+              setProject((p) => ({ ...p, imageStyle }))
+            }
             onChange={updateScenes}
             onBackToPlot={() => setStep(3)}
             previousEpisode={previous}

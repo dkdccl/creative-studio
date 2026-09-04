@@ -19,7 +19,7 @@ import { buildPdf } from '@/lib/novel-export-pdf';
 import type { NovelProject } from '@/lib/types';
 import { Button, Card, StepShell } from './ui';
 
-type Format = 'txt' | 'pdf' | 'docx' | 'zip';
+type Format = 'pdf' | 'docx' | 'zip';
 
 const FORMATS: {
   id: Format;
@@ -28,20 +28,14 @@ const FORMATS: {
   note: string;
 }[] = [
   {
-    id: 'txt',
-    label: '.txt（テキスト）',
-    lead: '本文のみのプレーンテキスト',
-    note: '画像は含みません',
-  },
-  {
     id: 'pdf',
-    label: '.pdf（そのまま読める・印刷できる）',
+    label: 'PDF をDL（画像を埋め込み）',
     lead: 'テキスト + 画像を含む',
     note: '文字は画像として描くため選択・検索はできません',
   },
   {
     id: 'docx',
-    label: '.docx（Word）',
+    label: 'Word をダウンロード（画像を埋め込み）',
     lead: 'テキスト + 画像を含む',
     note: 'Word で編集・調整できます',
   },
@@ -68,7 +62,7 @@ export function StepExport({
     ok: boolean;
     message: string;
   } | null>(null);
-  const [selected, setSelected] = useState<Format[]>(['txt', 'pdf']);
+  const [selected, setSelected] = useState<Format[]>(['pdf', 'docx']);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -106,10 +100,6 @@ export function StepExport({
   /** 1 形式ぶん書き出す。戻り値は結果メッセージ */
   const exportOne = async (format: Format): Promise<string> => {
     switch (format) {
-      case 'txt': {
-        downloadTextFile(bookFileName(project, 'txt'), manuscript);
-        return '.txt';
-      }
       case 'pdf': {
         const { blob, pageCount, skippedImages } = await buildPdf(project);
         downloadBlob(bookFileName(project, 'pdf'), blob);

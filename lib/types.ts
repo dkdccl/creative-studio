@@ -177,6 +177,11 @@ export interface NovelProject {
   theme: NovelTheme;
   characters: Character[];
   scenes: Scene[];
+  /**
+   * 挿絵の絵柄。lib/novel-illustration.ts の ImageStyleId と対応する。
+   * 型を直接使わないのは、あちらが server-only を読み込むため。
+   */
+  imageStyle: 'photorealistic' | 'anime' | 'illustration';
 }
 
 export function createEmptyNovelProject(): NovelProject {
@@ -200,5 +205,6 @@ export function createEmptyNovelProject(): NovelProject {
     },
     characters: [],
     scenes: [],
+    imageStyle: 'illustration',
   };
 }

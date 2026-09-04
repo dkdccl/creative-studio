@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { IMAGE_STYLES, type ImageStyleId } from '@/lib/image-styles';
 import { countChars } from '@/lib/novel-export';
 import { createId } from '@/lib/novel-storage';
 import {
   blockMarker,
+  findMarkerNumbers,
   insertMarkerAt,
   nextMarkerNumber,
 } from '@/lib/scene-blocks';
@@ -41,6 +43,8 @@ export function StepEditor({
   scenes,
   characters,
   theme,
+  imageStyle,
+  onImageStyleChange,
   onChange,
   onBackToPlot,
   previousEpisode,
@@ -48,11 +52,18 @@ export function StepEditor({
   scenes: Scene[];
   characters: Character[];
   theme: NovelTheme;
+  /** 挿絵の絵柄 */
+  imageStyle: ImageStyleId;
+  onImageStyleChange: (style: ImageStyleId) => void;
   onChange: (scenes: Scene[]) => void;
   onBackToPlot: () => void;
   /** 連載中なら 1 つ前の話 */
   previousEpisode: EpisodeRecord | null;
 }) {
+  const [illustrating, setIllustrating] = useState(false);
+  const [illustrateMessage, setIllustrateMessage] = useState<string | null>(
+    null,
+  );
   const ordered = useMemo(() => sortScenesByAct(scenes), [scenes]);
   const [selectedId, setSelectedId] = useState<string | null>(
     ordered[0]?.id ?? null,
@@ -156,6 +167,109 @@ export function StepEditor({
     setAiOpen(false);
   };
 
+  /**
+   * AI に挿絵の位置を決めさせ、生成した画像を本文へ差し込む。
+   *
+   * 位置は「何段落目のあとか」で返るので、その段落の直後にマーカー行を入れ、
+   * 対応する画像ブロックをシーンに足す。番号は本文と既存ブロックの最大値 + 1。
+   */
+  const autoIllustrate = async () => {
+    const written = ordered.filter((s) => s.body.trim() !== '');
+    if (written.length === 0) {
+      setIllustrateMessage('本文が書かれたシーンがありません。');
+      return;
+    }
+
+    setIllustrating(true);
+    setIllustrateMessage(null);
+    try {
+      const response = await fetch('/api/novels/illustrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: theme.title,
+          imageStyle,
+          scenes: written.map((s) => ({
+            id: s.id,
+            title: s.title,
+            body: s.body,
+          })),
+        }),
+      });
+      const data = (await response.json()) as {
+        illustrations?: {
+          sceneId: string;
+          afterParagraph: number;
+          imageUrl: string;
+          prompt: string;
+          caption: string;
+        }[];
+        planned?: number;
+        failed?: number;
+        error?: string;
+      };
+
+      if (!response.ok || !data.illustrations?.length) {
+        setIllustrateMessage(data.error ?? '挿絵を生成できませんでした。');
+        return;
+      }
+
+      // シーンごとにまとめ、後ろの段落から入れて位置がずれないようにする
+      const next = scenes.map((scene) => {
+        const forScene = data
+          .illustrations!.filter((x) => x.sceneId === scene.id)
+          .sort((a, b) => b.afterParagraph - a.afterParagraph);
+        if (forScene.length === 0) return scene;
+
+        let body = scene.body;
+        const blocks = [...scene.blocks];
+        // 同じシーンに複数入るので、番号は採番済みを見ながら進める
+        let number =
+          Math.max(
+            0,
+            ...findMarkerNumbers(body, 'manga'),
+            ...blocks.filter((b) => b.kind === 'manga').map((b) => b.number),
+          ) + 1;
+
+        for (const item of forScene) {
+          const paragraphs = body.split('\n');
+          const at = Math.min(
+            Math.max(0, item.afterParagraph),
+            paragraphs.length,
+          );
+          paragraphs.splice(at, 0, blockMarker('manga', number));
+          body = paragraphs.join('\n');
+
+          blocks.push({
+            id: createId('block'),
+            kind: 'manga',
+            number,
+            imageUrl: item.imageUrl,
+            story: item.caption || item.prompt,
+            pages: 1,
+            mood: '',
+          });
+          number += 1;
+        }
+
+        return { ...scene, body, blocks };
+      });
+
+      commit(next);
+
+      const failed = data.failed ?? 0;
+      setIllustrateMessage(
+        failed > 0
+          ? `挿絵を ${data.illustrations.length} 枚入れました（${failed} 枚は生成に失敗したため飛ばしました）。`
+          : `挿絵を ${data.illustrations.length} 枚入れました。`,
+      );
+    } catch {
+      setIllustrateMessage('通信に失敗しました。接続を確認してください。');
+    } finally {
+      setIllustrating(false);
+    }
+  };
+
   /** 該当 ID のブロックだけ配列から外す。本文のマーカーはそのまま残す */
   const deleteBlock = (blockId: string) => {
     if (!selected) return;
@@ -214,6 +328,51 @@ export function StepEditor({
             className="h-full rounded-full bg-gradient-to-r from-[#3B82F6] to-[#1D4ED8] transition-all duration-500"
             style={{ width: `${progress}%` }}
           />
+        </div>
+      </div>
+
+      {/* AI 挿絵 */}
+      <div className="rounded-2xl border border-blue-400/25 bg-blue-950/30 p-5">
+        <p className="text-sm font-bold text-blue-50">AI 挿絵</p>
+        <p className="mt-1 text-xs text-blue-100/50">
+          本文を読んで山場を選び、その位置に挿絵を差し込みます。枚数は長さに応じて
+          1〜5 枚です。
+        </p>
+
+        <p className="mb-2 mt-4 text-xs font-bold text-blue-100/70">
+          画像スタイルを選択
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {IMAGE_STYLES.map((style) => (
+            <button
+              key={style.id}
+              type="button"
+              onClick={() => onImageStyleChange(style.id)}
+              aria-pressed={imageStyle === style.id}
+              className={`rounded-xl border-2 px-4 py-2 text-left transition-all ${
+                imageStyle === style.id
+                  ? 'border-blue-400 bg-blue-500/25 text-white'
+                  : 'border-blue-400/25 bg-blue-950/30 text-blue-100/70 hover:border-blue-400/60 hover:text-white'
+              }`}
+            >
+              <span className="block text-sm font-bold">{style.label}</span>
+              <span className="block text-[11px] opacity-70">{style.hint}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <Button onClick={autoIllustrate} disabled={illustrating}>
+            {illustrating ? '挿絵を作成中…' : '🖼️ AI で挿絵を入れる'}
+          </Button>
+          {illustrating && (
+            <span className="text-xs text-blue-100/50">
+              画像 1 枚あたり 10〜20 秒ほどかかります
+            </span>
+          )}
+          {illustrateMessage && (
+            <span className="text-xs text-blue-200/70">{illustrateMessage}</span>
+          )}
         </div>
       </div>
 
