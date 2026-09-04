@@ -6,7 +6,7 @@ import { GeneratorCard } from './components/generator-card';
 export const metadata: Metadata = {
   title: '漫画を作る',
   description:
-    'ページ数と雰囲気を選んで、1ページ6コマ（3x2）の漫画を DALL-E で生成します。',
+    'ページ数と雰囲気を選んで、1ページ 4〜6 コマの漫画を生成します。',
 };
 
 export default function MangaPage() {
@@ -30,7 +30,8 @@ export default function MangaPage() {
             </span>
           </h1>
           <p className="mt-2 text-sm text-red-100/60">
-            ページ数と雰囲気を選んで生成します。コマ割りは 1ページ 6コマ（3x2）固定です。
+            ページ数と雰囲気を選んで生成します。コマ数はページごとに 4 / 5 / 6
+            コマから選べます。
           </p>
         </header>
 

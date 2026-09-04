@@ -1,8 +1,46 @@
 import { NextResponse } from 'next/server';
 import { generateImage, isOpenAIConfigured } from '@/lib/openai';
-import { buildMangaGenerationPrompt, clampPages } from '@/lib/scene-blocks';
+import {
+  buildMangaGenerationPrompt,
+  clampPages,
+  getGridLayout,
+  normalizePanelCount,
+  type PageConfig,
+  type PanelCount,
+} from '@/lib/scene-blocks';
 
 export const runtime = 'nodejs';
+
+/** 画像 1 枚あたりが長いので、まとめて生成するときのために伸ばしておく */
+export const maxDuration = 300;
+
+/** レート制限に当たらないよう、ページごとに少し待つ */
+const PAGE_INTERVAL_MS = 1000;
+
+export interface MangaPageResult {
+  pageNumber: number;
+  panelsCount: PanelCount;
+  imageUrl: string;
+  prompt: string;
+  revisedPrompt?: string;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** リクエストの pageConfigs を、ページ番号 → コマ数 の対応に整える */
+function readPageConfigs(raw: unknown, totalPages: number): PageConfig[] {
+  const list = Array.isArray(raw) ? raw : [];
+  return Array.from({ length: totalPages }, (_, i) => {
+    const pageNumber = i + 1;
+    const found = list.find(
+      (c: any) => Math.round(Number(c?.pageNumber)) === pageNumber,
+    );
+    return {
+      pageNumber,
+      panelsCount: normalizePanelCount((found as any)?.panelsCount),
+    };
+  });
+}
 
 export async function POST(request: Request) {
   if (!isOpenAIConfigured) {
@@ -36,21 +74,94 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '雰囲気を選んでください。' }, { status: 400 });
   }
 
-  const pages = clampPages(body.pages ?? 1);
-  const prompt = buildMangaGenerationPrompt({ story, pages, mood });
+  const totalPages = clampPages(body.pages ?? 1);
+  const language =
+    typeof body.language === 'string' && body.language.trim()
+      ? body.language.trim()
+      : undefined;
 
-  try {
-    // 3x2 のコマ割りに合わせて横長で生成する（gpt-image 系が受け付ける横長サイズ）
-    const images = await generateImage({ prompt, size: '1536x1024' });
-    if (!images[0]) {
-      return NextResponse.json({ error: '画像生成失敗' }, { status: 502 });
-    }
-    return NextResponse.json({
-      url: images[0].url,
-      prompt,
-      revisedPrompt: images[0].revisedPrompt,
+  const configs = readPageConfigs(body.pageConfigs, totalPages);
+
+  // pageNumber が来たらそのページだけを生成する。
+  // クライアントが 1 ページずつ呼んで進捗を出せるようにするための入口で、
+  // 省略時は下のループで全ページをまとめて生成する。
+  const single =
+    body.pageNumber === undefined || body.pageNumber === null
+      ? null
+      : Math.min(Math.max(1, Math.round(Number(body.pageNumber)) || 1), totalPages);
+
+  const from = single ?? 1;
+  const to = single ?? totalPages;
+
+  // ページごとに呼ばれても全体の構成が分かるようにしておく
+  console.log(
+    `📊 Panel configuration: ${configs.map((c) => c.panelsCount).join(', ')} コマ`,
+  );
+
+  const pages: MangaPageResult[] = [];
+
+  for (let pageNum = from; pageNum <= to; pageNum += 1) {
+    const pageConfig = configs.find((c) => c.pageNumber === pageNum);
+    const panelsCount = pageConfig?.panelsCount ?? 6;
+
+    console.log(
+      `🎨 ページ ${pageNum}/${totalPages}: ${panelsCount}コマ (${
+        getGridLayout(panelsCount).label
+      }) を生成中…`,
+    );
+
+    // ページごとにプロンプトを組み直す。同じプロンプトを使い回すと
+    // どのページも同じ場面・同じコマ数になってしまう
+    const prompt = buildMangaGenerationPrompt({
+      story,
+      pageNumber: pageNum,
+      totalPages,
+      panelsCount,
+      mood,
+      language,
     });
-  } catch (error: any) {
-    return NextResponse.json({ error: error?.message || '生成失敗' }, { status: 502 });
+
+    try {
+      // コマ割りに合わせて横長で生成する（gpt-image 系が受け付ける横長サイズ）
+      const images = await generateImage({ prompt, size: '1536x1024' });
+      const image = images[0];
+      if (!image) {
+        throw new Error(`${pageNum}ページ目の画像を生成できませんでした。`);
+      }
+      pages.push({
+        pageNumber: pageNum,
+        panelsCount,
+        imageUrl: image.url,
+        prompt,
+        revisedPrompt: image.revisedPrompt,
+      });
+    } catch (error: any) {
+      const message = error?.message || `${pageNum}ページ目の生成に失敗しました。`;
+      // 1 枚も作れていないときだけエラーにする。
+      // 途中まで出来ていれば、それは返したうえで失敗も伝える
+      if (pages.length === 0) {
+        return NextResponse.json({ error: message }, { status: 502 });
+      }
+      return NextResponse.json({
+        pages,
+        totalPages,
+        url: pages[0].imageUrl,
+        prompt: pages[0].prompt,
+        error: message,
+      });
+    }
+
+    if (pageNum < to) {
+      await sleep(PAGE_INTERVAL_MS);
+    }
   }
+
+  return NextResponse.json({
+    pages,
+    totalPages,
+    // 1 枚だけを見る呼び出し元（小説モードの挿入モーダル）向けの互換フィールド
+    url: pages[0].imageUrl,
+    prompt: pages[0].prompt,
+    revisedPrompt: pages[0].revisedPrompt,
+  });
 }

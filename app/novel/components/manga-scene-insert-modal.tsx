@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 
-import { MANGA_MOODS, buildMangaGenerationPrompt } from '@/lib/scene-blocks';
+import {
+  MANGA_MOODS,
+  PANELS_PER_PAGE,
+  buildMangaGenerationPrompt,
+} from '@/lib/scene-blocks';
 import { ModalShell } from './modal-shell';
 import { PageCountPicker } from './page-count-picker';
 import { Button, Chip, Field, TextArea, TextInput } from './ui';
@@ -39,9 +43,13 @@ export function MangaSceneInsertModal({
   const [pagesValid, setPagesValid] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // このモーダルは 1 枚だけ挿入するので、1 ページ目のプロンプトを見せる。
+  // コマ数の選択は漫画モード側だけの機能なので、ここは既定の 6 コマ固定
   const prompt = buildMangaGenerationPrompt({
     story: story.trim() || '（ストーリー未入力）',
-    pages,
+    pageNumber: 1,
+    totalPages: pages,
+    panelsCount: PANELS_PER_PAGE,
     mood,
   });
 
@@ -71,7 +79,8 @@ export function MangaSceneInsertModal({
       const response = await fetch('/api/manga/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ story, pages, mood }),
+        // 挿入するのは 1 枚なので 1 ページ目だけを生成させる
+        body: JSON.stringify({ story, pages, mood, pageNumber: 1 }),
       });
       const data = (await response.json()) as { url?: string; error?: string };
       if (!response.ok || !data.url) {
