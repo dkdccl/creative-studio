@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { generateAllDialoguesWithGPT55 } from '@/lib/gpt55-dialogues';
 import { generateImage, isOpenAIConfigured } from '@/lib/openai';
 import {
   buildMangaGenerationPrompt,
@@ -23,6 +24,8 @@ export interface MangaPageResult {
   imageUrl: string;
   prompt: string;
   revisedPrompt?: string;
+  /** コマ順のセリフ。gpt-5.5 での生成を使ったときだけ入る */
+  dialogues?: string[];
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -98,6 +101,26 @@ export async function POST(request: Request) {
     `📊 Panel configuration: ${configs.map((c) => c.panelsCount).join(', ')} コマ`,
   );
 
+  // STEP 1: セリフを先に作る。画像より速く、失敗しても空で返るので絵の生成は止めない
+  const useGPT55 = body.useGPT55 !== false;
+  const targetConfigs = configs.slice(from - 1, to);
+  let allDialogues: string[][] = [];
+
+  if (useGPT55) {
+    console.log(`📝 STEP 1: Generate dialogues with gpt-5.5...`);
+    try {
+      allDialogues = await generateAllDialoguesWithGPT55(
+        targetConfigs,
+        story,
+        totalPages,
+        mood,
+      );
+    } catch (error) {
+      console.error('⚠️  gpt-5.5 failed:', error);
+      allDialogues = targetConfigs.map((c) => Array(c.panelsCount).fill(''));
+    }
+  }
+
   const pages: MangaPageResult[] = [];
 
   for (let pageNum = from; pageNum <= to; pageNum += 1) {
@@ -110,8 +133,12 @@ export async function POST(request: Request) {
       }) を生成中…`,
     );
 
+    const dialogues = allDialogues[pageNum - from] ?? [];
+    const hasDialogues = dialogues.some((d) => d.trim() !== '');
+
     // ページごとにプロンプトを組み直す。同じプロンプトを使い回すと
-    // どのページも同じ場面・同じコマ数になってしまう
+    // どのページも同じ場面・同じコマ数になってしまう。
+    // セリフを重ねる場合は、画像側には文字を描かせない
     const prompt = buildMangaGenerationPrompt({
       story,
       pageNumber: pageNum,
@@ -119,6 +146,7 @@ export async function POST(request: Request) {
       panelsCount,
       mood,
       language,
+      withoutText: hasDialogues,
     });
 
     try {
@@ -134,6 +162,7 @@ export async function POST(request: Request) {
         imageUrl: image.url,
         prompt,
         revisedPrompt: image.revisedPrompt,
+        dialogues: hasDialogues ? dialogues : undefined,
       });
     } catch (error: any) {
       const message = error?.message || `${pageNum}ページ目の生成に失敗しました。`;

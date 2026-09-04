@@ -15,6 +15,7 @@ import {
   type PageConfig,
   type PanelCount,
 } from '@/lib/scene-blocks';
+import { drawDialoguesOnImage } from '@/lib/dialogue-rendering';
 import { Chip, Field, Select, TextArea } from '@/app/novel/components/ui';
 
 export interface MangaPage {
@@ -22,6 +23,8 @@ export interface MangaPage {
   panelsCount: PanelCount;
   imageUrl: string;
   prompt: string;
+  /** コマ順のセリフ。gpt-5.5 で生成したときだけ入る */
+  dialogues?: string[];
 }
 
 interface GenerateResponse {
@@ -66,6 +69,8 @@ export function GeneratorCard() {
   /** 生成中のページ番号。未生成のときは null */
   const [currentPage, setCurrentPage] = useState<number | null>(null);
   const [downloading, setDownloading] = useState(false);
+  /** セリフを gpt-5.5 に書かせて、Canvas で画像に重ねる */
+  const [useGPT55, setUseGPT55] = useState(true);
 
   /**
    * 全ページをまとめて保存する。
@@ -103,6 +108,7 @@ export function GeneratorCard() {
     totalPages: pages,
     panelsCount: pageConfigs[0]?.panelsCount ?? 6,
     mood,
+    withoutText: useGPT55,
   });
 
   const canGenerate = story.trim().length > 0 && !generating;
@@ -121,7 +127,14 @@ export function GeneratorCard() {
         const response = await fetch('/api/manga/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ story, pages, mood, pageConfigs, pageNumber }),
+          body: JSON.stringify({
+            story,
+            pages,
+            mood,
+            pageConfigs,
+            pageNumber,
+            useGPT55,
+          }),
         });
         const data = (await response.json()) as GenerateResponse;
 
@@ -134,7 +147,20 @@ export function GeneratorCard() {
           return;
         }
 
-        collected.push(...data.pages);
+        // セリフがあれば Canvas で吹き出しを描き込む
+        for (const page of data.pages) {
+          if (page.dialogues?.length) {
+            console.log(`Drawing dialogues on page ${page.pageNumber}...`);
+            const imageUrl = await drawDialoguesOnImage(
+              page.imageUrl,
+              page.dialogues,
+              page.panelsCount,
+            );
+            collected.push({ ...page, imageUrl });
+          } else {
+            collected.push(page);
+          }
+        }
         // 出来たページから順に見せる
         setPreviewPages([...collected]);
       }
@@ -221,6 +247,24 @@ export function GeneratorCard() {
             </Chip>
           ))}
         </div>
+      </div>
+
+      <div className="rounded-xl border border-purple-400/30 bg-purple-500/10 px-4 py-3">
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm font-bold text-purple-50">
+          <input
+            type="checkbox"
+            checked={useGPT55}
+            onChange={(e) => setUseGPT55(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-purple-400"
+          />
+          <span>
+            🎭 gpt-5.5 でセリフを自動生成（品質向上）
+            <span className="mt-1 block text-xs font-normal text-purple-100/60">
+              セリフを先に文章で書かせて、絵は文字なしで生成し、あとから吹き出しを重ねます。
+              画像モデルに日本語を描かせるより字が崩れません。
+            </span>
+          </span>
+        </label>
       </div>
 
       <Field label="ストーリー" hint="画像モデルに渡す内容">

@@ -381,6 +381,11 @@ export interface MangaPromptOptions {
   mood: string;
   /** 吹き出しやオノマトペの言語。既定は日本語 */
   language?: string;
+  /**
+   * 画像に文字を描かせないようにする。
+   * セリフをあとから Canvas で重ねるときに使う（二重になるのを防ぐ）。
+   */
+  withoutText?: boolean;
 }
 
 /**
@@ -397,12 +402,22 @@ export function buildMangaGenerationPrompt({
   panelsCount,
   mood,
   language = '日本語',
+  withoutText = false,
 }: MangaPromptOptions): string {
   const pages = clampPages(totalPages);
   const current = Math.min(Math.max(1, Math.round(pageNumber) || 1), pages);
   const panels = normalizePanelCount(panelsCount);
   const grid = getGridLayout(panels);
   const segment = splitStoryByPages(story, pages)[current - 1] ?? story.trim();
+
+  // セリフをあとから重ねる場合は、絵の中に文字を描かせない
+  const textRule = withoutText
+    ? [
+        '重要: 文字を一切描かないこと。セリフ・吹き出し・擬音・看板の文字・効果音など、',
+        'あらゆる文字を画面に入れてはいけない。絵だけで表現すること。',
+        'セリフはあとから別途重ねるので、各コマの上部に少し空きスペースを残すこと。',
+      ].join('')
+    : null;
 
   return [
     `${language}の漫画。ページ ${current} / 全 ${pages} ページ。`,
@@ -413,5 +428,8 @@ export function buildMangaGenerationPrompt({
     `雰囲気: ${mood}`,
     `全体のストーリー: ${story.trim()}`,
     `このページで描く場面: ${segment}`,
-  ].join('\n');
+    textRule,
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n');
 }
