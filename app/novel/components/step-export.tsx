@@ -12,14 +12,14 @@ import {
 import {
   bookFileName,
   buildDocx,
-  buildEpub,
   buildImagesZip,
   downloadBlob,
 } from '@/lib/novel-export-files';
+import { buildPdf } from '@/lib/novel-export-pdf';
 import type { NovelProject } from '@/lib/types';
 import { Button, Card, StepShell } from './ui';
 
-type Format = 'txt' | 'epub' | 'docx' | 'zip';
+type Format = 'txt' | 'pdf' | 'docx' | 'zip';
 
 const FORMATS: {
   id: Format;
@@ -34,10 +34,10 @@ const FORMATS: {
     note: '画像は含みません',
   },
   {
-    id: 'epub',
-    label: '.epub（Kindle で読める）',
+    id: 'pdf',
+    label: '.pdf（そのまま読める・印刷できる）',
     lead: 'テキスト + 画像を含む',
-    note: 'Kindle へメール送信して読めます',
+    note: '文字は画像として描くため選択・検索はできません',
   },
   {
     id: 'docx',
@@ -56,12 +56,19 @@ const FORMATS: {
 export function StepExport({
   project,
   onSaveEpisode,
+  onReloadSaved,
 }: {
   project: NovelProject;
   /** 連載情報（話数・あらすじ・登場人物・エンディング）を記録する */
   onSaveEpisode: () => { ok: boolean; message: string };
+  /** 保存済みの下書きを localStorage から読み直す */
+  onReloadSaved: () => { ok: boolean; message: string };
 }) {
-  const [selected, setSelected] = useState<Format[]>(['txt', 'epub']);
+  const [reloadResult, setReloadResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
+  const [selected, setSelected] = useState<Format[]>(['txt', 'pdf']);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -103,12 +110,12 @@ export function StepExport({
         downloadTextFile(bookFileName(project, 'txt'), manuscript);
         return '.txt';
       }
-      case 'epub': {
-        const { blob, skippedImages } = await buildEpub(project);
-        downloadBlob(bookFileName(project, 'epub'), blob);
+      case 'pdf': {
+        const { blob, pageCount, skippedImages } = await buildPdf(project);
+        downloadBlob(bookFileName(project, 'pdf'), blob);
         return skippedImages > 0
-          ? `.epub（画像 ${skippedImages} 点は取得できず除外）`
-          : '.epub';
+          ? `.pdf（${pageCount} ページ／画像 ${skippedImages} 点は取得できず除外）`
+          : `.pdf（${pageCount} ページ）`;
       }
       case 'docx': {
         const { blob, skippedImages } = await buildDocx(project);
@@ -185,6 +192,28 @@ export function StepExport({
               }`}
             >
               {saveResult.message}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 保存済みの下書きを読み直す */}
+      <div className="rounded-2xl border border-blue-400/25 bg-blue-950/30 p-5">
+        <p className="text-sm font-bold text-blue-50">保存済みの小説を再度表示</p>
+        <p className="mt-1 text-xs text-blue-100/50">
+          このブラウザに自動保存された下書きを読み直します。編集中の内容は保存済みの内容で置き換わります。
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button onClick={() => setReloadResult(onReloadSaved())}>
+            再度表示
+          </Button>
+          {reloadResult && (
+            <span
+              className={`text-xs ${
+                reloadResult.ok ? 'text-blue-200/70' : 'text-red-300'
+              }`}
+            >
+              {reloadResult.message}
             </span>
           )}
         </div>

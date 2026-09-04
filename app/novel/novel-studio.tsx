@@ -71,6 +71,27 @@ export function NovelStudio() {
     return () => window.clearTimeout(timer);
   }, [project, loaded]);
 
+  /** 保存済みの下書きを読み直す（エクスポート画面の「再度表示」） */
+  const reloadSaved = (): { ok: boolean; message: string } => {
+    const stored = loadNovelProject();
+    if (!stored) {
+      return {
+        ok: false,
+        message: 'このブラウザに保存された小説が見つかりませんでした。',
+      };
+    }
+    setProject(stored);
+    setSavedAt(stored.updatedAt || null);
+    const chars = stored.scenes.reduce(
+      (sum, scene) => sum + scene.body.replace(/\s/g, '').length,
+      0,
+    );
+    return {
+      ok: true,
+      message: `『${stored.theme.title.trim() || '無題'}』を読み込みました（${chars.toLocaleString()} 字）。`,
+    };
+  };
+
   const updateTheme = (patch: Partial<NovelTheme>) =>
     setProject((p) => ({ ...p, theme: { ...p.theme, ...patch } }));
 
@@ -241,7 +262,11 @@ export function NovelStudio() {
           />
         )}
         {step === 5 && (
-          <StepExport project={project} onSaveEpisode={saveEpisode} />
+          <StepExport
+            project={project}
+            onSaveEpisode={saveEpisode}
+            onReloadSaved={reloadSaved}
+          />
         )}
 
         {/* 前後移動 */}
