@@ -30,6 +30,22 @@ interface GenerateResponse {
 }
 
 /**
+ * 生成した画像を保存する。
+ * 画像は data URL（gpt-image 系は base64 を返す）なので、
+ * a[download] にそのまま渡せばサーバーを経由せずに保存できる。
+ */
+function downloadPage(page: MangaPage) {
+  const link = document.createElement('a');
+  link.href = page.imageUrl;
+  link.download = `manga-page-${page.pageNumber}-${page.panelsCount}panels.png`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
  * 漫画モードの生成カード。
  * ページ数（1〜5）と、ページごとのコマ数（4 / 5 / 6）と雰囲気を選んで
  * 画像モデルを呼ぶ。コマ数はページごとに混在させられる。
@@ -49,6 +65,23 @@ export function GeneratorCard() {
   const [previewPages, setPreviewPages] = useState<MangaPage[]>([]);
   /** 生成中のページ番号。未生成のときは null */
   const [currentPage, setCurrentPage] = useState<number | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  /**
+   * 全ページをまとめて保存する。
+   * 連続でクリックするとブラウザに弾かれることがあるので少し間隔を空ける。
+   */
+  const downloadAll = async () => {
+    setDownloading(true);
+    try {
+      for (const page of previewPages) {
+        downloadPage(page);
+        await sleep(300);
+      }
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const changePages = (next: number) => {
     setPages(next);
@@ -242,15 +275,36 @@ export function GeneratorCard() {
 
       {previewPages.length > 0 && (
         <div className="space-y-6">
-          <p className="text-sm font-bold text-red-50">
-            生成結果（{previewPages.length}/{pages} ページ）
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm font-bold text-red-50">
+              生成結果（{previewPages.length}/{pages} ページ）
+            </p>
+            {previewPages.length > 1 && (
+              <button
+                type="button"
+                onClick={downloadAll}
+                disabled={downloading}
+                className="rounded-lg border border-red-400/40 px-3 py-1.5 text-xs font-bold text-red-100 transition-colors hover:border-red-300 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {downloading ? '保存中…' : '⬇ 全ページを保存'}
+              </button>
+            )}
+          </div>
           {previewPages.map((page) => (
             <div key={page.pageNumber}>
-              <p className="mb-1.5 text-xs font-bold text-white/50">
-                ページ {page.pageNumber}・{page.panelsCount}コマ (
-                {getGridLayout(page.panelsCount).label})
-              </p>
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-bold text-white/50">
+                  ページ {page.pageNumber}・{page.panelsCount}コマ (
+                  {getGridLayout(page.panelsCount).label})
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadPage(page)}
+                  className="rounded-lg border border-white/15 px-3 py-1 text-xs font-bold text-white/70 transition-colors hover:border-white/40 hover:text-white"
+                >
+                  ⬇ このページを保存
+                </button>
+              </div>
               {/* 一時 URL / data URL を扱うため next/image は使わない */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
