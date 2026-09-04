@@ -29,9 +29,16 @@ export const config = {
     imageModel: resolve(process.env.OPENAI_IMAGE_MODEL) ?? 'gpt-image-1',
     textModel: resolve(process.env.OPENAI_TEXT_MODEL) ?? 'gpt-5.5',
   },
+  stability: {
+    apiKey: resolve(process.env.STABILITY_API_KEY),
+    /** v2beta の生成エンドポイント。core / sd3 / ultra から選ぶ */
+    model: resolve(process.env.STABILITY_MODEL) ?? 'core',
+  },
   siteUrl: resolve(process.env.NEXT_PUBLIC_SITE_URL) ?? 'http://localhost:3000',
   env: process.env.NODE_ENV,
 } as const;
+
+export const isStabilityConfigured = Boolean(config.stability.apiKey);
 
 export const isSupabaseConfigured = Boolean(
   config.supabase.url && config.supabase.anonKey,

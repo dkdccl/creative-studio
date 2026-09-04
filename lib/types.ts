@@ -182,6 +182,8 @@ export interface NovelProject {
    * 型を直接使わないのは、あちらが server-only を読み込むため。
    */
   imageStyle: 'photorealistic' | 'anime' | 'illustration';
+  /** どちらの画像 API を使うか。lib/image-styles.ts の ContentType と対応 */
+  contentType: 'standard' | 'mature';
 }
 
 export function createEmptyNovelProject(): NovelProject {
@@ -206,5 +208,6 @@ export function createEmptyNovelProject(): NovelProject {
     characters: [],
     scenes: [],
     imageStyle: 'illustration',
+    contentType: 'standard',
   };
 }

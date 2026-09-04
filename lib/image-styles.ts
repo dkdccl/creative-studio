@@ -3,6 +3,26 @@
  * server-only を読み込む novel-illustration.ts とは分けている。
  */
 
+export type ContentType = 'standard' | 'mature';
+
+export const CONTENT_TYPES: {
+  id: ContentType;
+  label: string;
+  hint: string;
+}[] = [
+  { id: 'standard', label: '標準（全年齢向け）', hint: 'OpenAI で生成' },
+  { id: 'mature', label: '成人向け', hint: 'Stability AI で生成' },
+];
+
+export function normalizeContentType(value: unknown): ContentType {
+  return value === 'mature' ? 'mature' : 'standard';
+}
+
+/** どちらの画像 API を使うか */
+export function providerFor(contentType: ContentType): 'openai' | 'stability' {
+  return contentType === 'mature' ? 'stability' : 'openai';
+}
+
 export type ImageStyleId = 'photorealistic' | 'anime' | 'illustration';
 
 export const IMAGE_STYLES: {

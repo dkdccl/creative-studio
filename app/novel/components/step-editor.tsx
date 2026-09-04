@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { IMAGE_STYLES, type ImageStyleId } from '@/lib/image-styles';
+import {
+  CONTENT_TYPES,
+  IMAGE_STYLES,
+  type ContentType,
+  type ImageStyleId,
+} from '@/lib/image-styles';
 import { countChars } from '@/lib/novel-export';
 import { createId } from '@/lib/novel-storage';
 import {
@@ -45,6 +50,8 @@ export function StepEditor({
   theme,
   imageStyle,
   onImageStyleChange,
+  contentType,
+  onContentTypeChange,
   onChange,
   onBackToPlot,
   previousEpisode,
@@ -55,6 +62,9 @@ export function StepEditor({
   /** 挿絵の絵柄 */
   imageStyle: ImageStyleId;
   onImageStyleChange: (style: ImageStyleId) => void;
+  /** どちらの画像 API を使うか */
+  contentType: ContentType;
+  onContentTypeChange: (contentType: ContentType) => void;
   onChange: (scenes: Scene[]) => void;
   onBackToPlot: () => void;
   /** 連載中なら 1 つ前の話 */
@@ -189,6 +199,7 @@ export function StepEditor({
         body: JSON.stringify({
           title: theme.title,
           imageStyle,
+          contentType,
           scenes: written.map((s) => ({
             id: s.id,
             title: s.title,
@@ -338,6 +349,34 @@ export function StepEditor({
           本文を読んで山場を選び、その位置に挿絵を差し込みます。枚数は長さに応じて
           1〜5 枚です。
         </p>
+
+        <p className="mb-2 mt-4 text-xs font-bold text-blue-100/70">
+          コンテンツタイプ
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {CONTENT_TYPES.map((type) => (
+            <button
+              key={type.id}
+              type="button"
+              onClick={() => onContentTypeChange(type.id)}
+              aria-pressed={contentType === type.id}
+              className={`rounded-xl border-2 px-4 py-2 text-left transition-all ${
+                contentType === type.id
+                  ? 'border-blue-400 bg-blue-500/25 text-white'
+                  : 'border-blue-400/25 bg-blue-950/30 text-blue-100/70 hover:border-blue-400/60 hover:text-white'
+              }`}
+            >
+              <span className="block text-sm font-bold">{type.label}</span>
+              <span className="block text-[11px] opacity-70">{type.hint}</span>
+            </button>
+          ))}
+        </div>
+        {contentType === 'mature' && (
+          <p className="mt-2 text-[11px] text-blue-100/50">
+            Stability AI にも独自の利用規約とフィルタがあります。規約に反する内容は
+            API 側で拒否されます（こちらで無効化することはできません）。
+          </p>
+        )}
 
         <p className="mb-2 mt-4 text-xs font-bold text-blue-100/70">
           画像スタイルを選択
