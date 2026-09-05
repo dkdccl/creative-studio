@@ -42,7 +42,7 @@ export default function GravureStudio() {
   const completed = useMemo(() => {
     const done: number[] = [];
     if (settings.prompt.trim() !== '') done.push(1);
-    if (batch.shots.length > 0) done.push(2);
+    if (batch.includedShots.length > 0) done.push(2);
     if (
       metadata.title.trim() !== '' &&
       CHECKLIST_ITEMS.every((item) => checked.includes(item.id))
@@ -50,7 +50,7 @@ export default function GravureStudio() {
       done.push(3);
     }
     return done;
-  }, [settings.prompt, batch.shots.length, metadata.title, checked]);
+  }, [settings.prompt, batch.includedShots.length, metadata.title, checked]);
 
   return (
     <div className="space-y-8">
@@ -88,7 +88,7 @@ export default function GravureStudio() {
         />
       )}
 
-      {step === 4 && <StepExport metadata={metadata} shots={batch.shots} />}
+      {step === 4 && <StepExport metadata={metadata} shots={batch.includedShots} />}
     </div>
   );
 }
