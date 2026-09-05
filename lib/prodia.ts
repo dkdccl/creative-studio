@@ -71,7 +71,7 @@ export function assertProdiaConfig(): { token: string } {
   const token = config.prodia.token;
   if (!token) {
     throw new Error(
-      'PRODIA_TOKEN が未設定です。.env.local に API トークンを設定してください。',
+      'PRODIA_TOKEN が未設定です。ローカルは .env.local、本番は Vercel の環境変数に API トークンを設定してください。',
     );
   }
   return { token };
