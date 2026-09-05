@@ -34,11 +34,18 @@ export const config = {
     /** v2beta の生成エンドポイント。core / sd3 / ultra から選ぶ */
     model: resolve(process.env.STABILITY_MODEL) ?? 'core',
   },
+  prodia: {
+    token: resolve(process.env.PRODIA_TOKEN),
+    /** v2 の job type。既定は FLUX.2 [dev] */
+    jobType: resolve(process.env.PRODIA_JOB_TYPE) ?? 'inference.flux-2.dev.txt2img.v1',
+  },
   siteUrl: resolve(process.env.NEXT_PUBLIC_SITE_URL) ?? 'http://localhost:3000',
   env: process.env.NODE_ENV,
 } as const;
 
 export const isStabilityConfigured = Boolean(config.stability.apiKey);
+
+export const isProdiaConfigured = Boolean(config.prodia.token);
 
 export const isSupabaseConfigured = Boolean(
   config.supabase.url && config.supabase.anonKey,
