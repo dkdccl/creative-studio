@@ -115,7 +115,7 @@ export default function ImageGenerator() {
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">
         <div>
           <label className={labelClass} htmlFor="prompt">
-            プロンプト <span className="text-pink-400">*</span>
+            プロンプト <span className="text-violet-400">*</span>
           </label>
           <textarea
             id="prompt"
@@ -172,7 +172,7 @@ export default function ImageGenerator() {
                   onClick={() => setSize({ width: preset.width, height: preset.height })}
                   className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${
                     active
-                      ? 'border-pink-400 bg-pink-500/20 text-pink-100'
+                      ? 'border-violet-400 bg-violet-500/20 text-violet-100'
                       : 'border-purple-400/30 text-purple-200/70 hover:border-purple-300 hover:text-white'
                   }`}
                 >
@@ -195,7 +195,7 @@ export default function ImageGenerator() {
               max={50}
               value={steps}
               onChange={(e) => setSteps(Number(e.target.value))}
-              className="w-full accent-pink-500"
+              className="w-full accent-violet-500"
             />
           </div>
           <div>
@@ -210,7 +210,7 @@ export default function ImageGenerator() {
               step={0.5}
               value={guidanceScale}
               onChange={(e) => setGuidanceScale(Number(e.target.value))}
-              className="w-full accent-pink-500"
+              className="w-full accent-violet-500"
             />
           </div>
         </div>
@@ -233,7 +233,7 @@ export default function ImageGenerator() {
         <button
           type="submit"
           disabled={!canSubmit}
-          className="rounded-2xl border-4 border-pink-600 bg-gradient-to-br from-[#EC4899] to-[#BE185D] px-6 py-4 text-lg font-bold text-white shadow-lg shadow-pink-900/40 transition-all duration-300 hover:-translate-y-0.5 hover:border-pink-400 hover:shadow-[0_0_35px_-5px_rgba(236,72,153,0.8)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-pink-300 active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:border-purple-700 disabled:from-purple-800 disabled:to-purple-900 disabled:text-purple-300/60 disabled:shadow-none disabled:hover:translate-y-0"
+          className="rounded-2xl border-4 border-violet-600 bg-gradient-to-br from-[#A855F7] to-[#7C3AED] px-6 py-4 text-lg font-bold text-white shadow-lg shadow-violet-900/40 transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-400 hover:shadow-[0_0_35px_-5px_rgba(168,85,247,0.8)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-300 active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:border-purple-700 disabled:from-purple-800 disabled:to-purple-900 disabled:text-purple-300/60 disabled:shadow-none disabled:hover:translate-y-0"
         >
           {isGenerating ? '生成中…' : '✨ 生成する'}
         </button>
@@ -260,7 +260,7 @@ export default function ImageGenerator() {
             </p>
             <div className="h-2 w-full overflow-hidden rounded-full bg-purple-900/60">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-pink-400 to-purple-400 transition-[width] duration-300 ease-out"
+                className="h-full rounded-full bg-gradient-to-r from-violet-400 to-purple-400 transition-[width] duration-300 ease-out"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>

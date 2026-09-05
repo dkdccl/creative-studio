@@ -17,6 +17,11 @@ interface ModeCard {
    * 組み立て方だとクラスが生成されない。
    */
   className: string;
+  /**
+   * グリッド内での置き方。2 列に対して 3 枚目だけ下段中央に来るよう、
+   * 2 列ぶんをまたいでから半分の幅に絞っている。
+   */
+  spanClassName?: string;
 }
 
 const MODES: ModeCard[] = [
@@ -40,9 +45,11 @@ const MODES: ModeCard[] = [
     mode: 'gravure',
     icon: '📸',
     title: 'グラビア画像生成',
-    description: 'FLUX.2 でプロンプトから生成',
+    description: 'Prodia AI で写真生成',
     className:
-      'border-pink-600 bg-gradient-to-br from-[#EC4899] to-[#BE185D] shadow-pink-900/40 hover:border-pink-400 hover:from-pink-400 hover:to-pink-500 hover:shadow-[0_0_45px_-5px_rgba(236,72,153,0.85)] focus-visible:ring-pink-300',
+      'border-violet-600 bg-gradient-to-br from-[#A855F7] to-[#7C3AED] shadow-violet-900/40 hover:border-violet-400 hover:from-violet-400 hover:to-violet-500 hover:shadow-[0_0_45px_-5px_rgba(168,85,247,0.85)] focus-visible:ring-violet-300',
+    // calc は演算子の前後に空白が要る。Tailwind の任意値ではアンダースコアが空白になる
+    spanClassName: 'md:col-span-2 md:mx-auto md:w-[calc(50%_-_1rem)]',
   },
 ];
 
@@ -75,8 +82,8 @@ export default function SelectMode() {
         </p>
       </header>
 
-      {/* 3 つのモードカード（スマホ：縦積み / タブレット以上：横並び） */}
-      <div className="grid w-full max-w-5xl grid-cols-1 gap-6 sm:gap-8 md:grid-cols-3">
+      {/* 3 つのモードカード（スマホ：縦積み / タブレット以上：上段 2 枚 + 下段中央 1 枚） */}
+      <div className="grid w-full max-w-4xl grid-cols-1 gap-6 sm:gap-8 md:grid-cols-2">
         {MODES.map((card) => (
           <button
             key={card.mode}
@@ -84,7 +91,7 @@ export default function SelectMode() {
             onClick={() => go(card.mode)}
             disabled={pending !== null}
             aria-label={card.title}
-            className={`group flex min-h-48 w-full flex-col items-center justify-center gap-3 rounded-3xl border-4 px-6 py-8 shadow-lg transition-all duration-300 hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 focus-visible:ring-offset-black active:translate-y-0 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 sm:min-h-56 sm:gap-4 ${card.className}`}
+            className={`group flex min-h-48 w-full flex-col items-center justify-center gap-3 rounded-3xl border-4 px-6 py-8 shadow-lg transition-all duration-300 hover:-translate-y-1 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 focus-visible:ring-offset-black active:translate-y-0 active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 sm:min-h-56 sm:gap-4 ${card.className} ${card.spanClassName ?? ''}`}
           >
             <span className="text-5xl transition-transform duration-300 group-hover:scale-110 sm:text-6xl">
               {card.icon}
