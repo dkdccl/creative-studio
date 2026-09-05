@@ -119,7 +119,11 @@ export function useBatchGeneration() {
   }, [releaseUrls]);
 
   const start = useCallback(
-    async (count: number, request: PromptSettings, reference: File | null = null) => {
+    async (count: number, request: PromptSettings, references: File[] = []) => {
+      // img2img は参考画像 1 枚につき count 枚ずつ作る。txt2img は参考画像なしの 1 巡
+      const passes: (File | null)[] =
+        request.mode === 'img2img' && references.length > 0 ? references : [null];
+      const grandTotal = count * passes.length;
       // 前回ぶんは破棄してから始める
       releaseUrls();
       setShots([]);
@@ -127,20 +131,26 @@ export function useBatchGeneration() {
       setExcludedIds([]);
       setCompleted(0);
       setFatalError(null);
-      setTotal(count);
+      setTotal(grandTotal);
       setStatus('running');
 
       const controller = new AbortController();
       abortRef.current = controller;
 
       let consecutiveFailures = 0;
+      let done = 0;
+
+      outer: for (let pass = 0; pass < passes.length; pass += 1) {
+      const reference = passes[pass];
+      const referenceIndex = reference ? pass + 1 : undefined;
 
       for (let i = 0; i < count; i += 1) {
-        if (controller.signal.aborted) break;
+        if (controller.signal.aborted) break outer;
 
         const index = i + 1;
-        // 種を固定すると同じ絵ばかりになるので 1 枚ずつずらす
-        const seed = request.baseSeed === undefined ? undefined : request.baseSeed + i;
+        // 種を固定すると同じ絵ばかりになるので 1 枚ずつずらす。参考画像ごとにもずらす
+        const seed =
+          request.baseSeed === undefined ? undefined : request.baseSeed + pass * count + i;
 
         try {
           const [url, init] = buildRequest(request, seed, reference);
@@ -163,8 +173,9 @@ export function useBatchGeneration() {
           setShots((prev) => [
             ...prev,
             {
-              id: `${Date.now()}-${index}`,
+              id: `${Date.now()}-${pass}-${index}`,
               index,
+              referenceIndex,
               objectUrl,
               blob,
               width: size.width,
@@ -180,7 +191,10 @@ export function useBatchGeneration() {
 
           const message =
             error instanceof Error ? error.message : '生成に失敗しました';
-          setFailures((prev) => [...prev, { index, message }]);
+          setFailures((prev) => [
+            ...prev,
+            { index, referenceIndex, message },
+          ]);
           consecutiveFailures += 1;
 
           // 認証切れなどは残り全部が同じ理由で失敗するため、続けても意味がない
@@ -188,11 +202,13 @@ export function useBatchGeneration() {
             setFatalError(
               `${MAX_CONSECUTIVE_FAILURES} 回続けて失敗したため中断しました。最後のエラー: ${message}`,
             );
-            break;
+            break outer;
           }
         } finally {
-          setCompleted(index);
+          done += 1;
+          setCompleted(done);
         }
+      }
       }
 
       const wasAborted = controller.signal.aborted;

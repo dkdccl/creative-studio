@@ -45,10 +45,18 @@ function baseName(metadata: GravureMetadata): string {
   return toSafeFileName(metadata.title, 'gravure');
 }
 
-/** 1 枚だけ JPEG で落とす。ファイル名は指定どおり 画像{N}-gravure-{NNN}.jpg */
+/**
+ * 1 枚だけ JPEG で落とす。
+ * 参考画像なし: 画像{N}-gravure-{NNN}.jpg（指定どおり）
+ * 参考画像あり: 参考{R}-画像{N}-gravure-{RR}-{NNN}.jpg
+ */
 export function downloadShot(shot: GravureShot): void {
-  const numbered = String(shot.index).padStart(3, '0');
-  downloadBlob(`画像${shot.index}-gravure-${numbered}.jpg`, shot.blob);
+  const body = imageFileName(shot.index, shot.referenceIndex);
+  const prefix =
+    shot.referenceIndex === undefined
+      ? `画像${shot.index}`
+      : `参考${shot.referenceIndex}-画像${shot.index}`;
+  downloadBlob(`${prefix}-${body}`, shot.blob);
 }
 
 /** メタデータだけを JSON で落とす */
@@ -75,9 +83,16 @@ export async function buildZip(
   const zip = new JSZip();
 
   const images = zip.folder('images');
-  // 除外したぶんを飛ばして詰めるため、生成時の index ではなく並び順で振り直す
+  // 参考画像ごとに番号を振り直す。どの参考画像から出たかがファイル名で分かる
+  const seen = new Map<number | undefined, number>();
   shots.forEach((shot, i) => {
-    images?.file(imageFileName(i + 1), shot.blob);
+    const group = shot.referenceIndex;
+    const next = (seen.get(group) ?? 0) + 1;
+    seen.set(group, next);
+    images?.file(
+      group === undefined ? imageFileName(i + 1) : imageFileName(next, group),
+      shot.blob,
+    );
   });
 
   zip.file(

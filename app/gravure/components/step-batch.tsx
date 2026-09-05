@@ -20,13 +20,13 @@ export function StepBatch({
   batch,
   count,
   settings,
-  reference,
+  references,
   onNext,
 }: {
   batch: Batch;
   count: number;
   settings: PromptSettings;
-  reference: File | null;
+  references: File[];
   onNext: () => void;
 }) {
   const {
@@ -41,7 +41,11 @@ export function StepBatch({
     isRunning,
   } = batch;
 
-  const denominator = total || count;
+  const planned =
+    settings.mode === 'img2img' && references.length > 0
+      ? count * references.length
+      : count;
+  const denominator = total || planned;
   const percent = denominator === 0 ? 0 : (completed / denominator) * 100;
   const remainingSeconds = Math.max(0, denominator - completed) * SECONDS_PER_IMAGE;
 
@@ -107,7 +111,11 @@ export function StepBatch({
     <StepShell
       step={2}
       title="一括生成"
-      description={`設定した内容で ${count} 枚を順番に生成します。途中でキャンセルできます。`}
+      description={
+        settings.mode === 'img2img' && references.length > 1
+          ? `参考画像 ${references.length} 枚 × ${count} 枚 = 合計 ${planned} 枚を順番に生成します。途中でキャンセルできます。`
+          : `設定した内容で ${planned} 枚を順番に生成します。途中でキャンセルできます。`
+      }
     >
       {status === 'idle' ? (
         <div className="flex flex-col items-start gap-4">
@@ -115,7 +123,10 @@ export function StepBatch({
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div className="flex gap-2">
                 <dt className="text-violet-200/50">枚数</dt>
-                <dd className="font-bold text-white">{count} 枚</dd>
+                <dd className="font-bold text-white">
+                  {planned} 枚
+                  {references.length > 1 && ` (${references.length} 枚 × ${count})`}
+                </dd>
               </div>
               <div className="flex gap-2">
                 <dt className="text-violet-200/50">サイズ</dt>
@@ -129,11 +140,11 @@ export function StepBatch({
               </div>
             </dl>
           </Card>
-          <PrimaryButton type="button" onClick={() => batch.start(count, settings, reference)}>
+          <PrimaryButton type="button" onClick={() => batch.start(count, settings, references)}>
             ⚡ 一括生成開始
           </PrimaryButton>
           <p className="text-xs text-violet-200/40">
-            所要時間の目安 {formatRemaining(count * SECONDS_PER_IMAGE).replace('残り約 ', '約 ')}
+            所要時間の目安 {formatRemaining(planned * SECONDS_PER_IMAGE).replace('残り約 ', '約 ')}
             。生成中はこのページを開いたままにしてください。
           </p>
         </div>
@@ -168,7 +179,7 @@ export function StepBatch({
               </SecondaryButton>
             ) : (
               <>
-                <SecondaryButton type="button" onClick={() => batch.start(count, settings, reference)}>
+                <SecondaryButton type="button" onClick={() => batch.start(count, settings, references)}>
                   ↻ もう一度生成
                 </SecondaryButton>
                 <PrimaryButton
@@ -224,6 +235,8 @@ export function StepBatch({
                     >
                       <div className="flex items-center justify-between px-3 py-2">
                         <span className="text-xs font-bold text-violet-100">
+                          {shot.referenceIndex !== undefined &&
+                            `参考 ${shot.referenceIndex} / `}
                           画像 {shot.index}
                         </span>
                         <span className="text-[11px] text-violet-200/40">
@@ -270,7 +283,9 @@ export function StepBatch({
               </summary>
               <ul className="mt-2 space-y-1 text-xs text-red-200/80">
                 {failures.map((failure) => (
-                  <li key={failure.index}>
+                  <li key={`${failure.referenceIndex ?? 0}-${failure.index}`}>
+                    {failure.referenceIndex !== undefined &&
+                      `参考 ${failure.referenceIndex} / `}
                     {failure.index} 枚目: {failure.message}
                   </li>
                 ))}

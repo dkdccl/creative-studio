@@ -109,7 +109,10 @@ export const ACCEPTED_UPLOAD_TYPES = ['image/jpeg', 'image/png'] as const;
 export const MAX_UPLOAD_PIXELS = 1920;
 export const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 
-/** img2img の枚数は 1〜5 枚 */
+/** 参考画像の上限。生成回数は 枚数 × 参考画像数 になるので歯止めを入れる */
+export const MAX_REFERENCES = 10;
+
+/** img2img の枚数は 1〜5 枚（参考画像 1 枚あたり） */
 export const IMG2IMG_BATCH_SIZES = [1, 2, 3, 4, 5] as const;
 
 /** 1 回の生成に渡す設定。ステップ 1 で決めてステップ 2 で使う */
@@ -161,11 +164,15 @@ export interface GravureShot {
   prompt: string;
   jobType: string;
   seed?: number;
+  /** どの参考画像から作ったか（1 始まり）。txt2img では未設定 */
+  referenceIndex?: number;
 }
 
 /** 失敗した 1 枚 */
 export interface GravureFailure {
   index: number;
+  /** どの参考画像でのぶんか（1 始まり） */
+  referenceIndex?: number;
   message: string;
 }
 
@@ -265,15 +272,22 @@ export interface KdpMetadata {
   images: {
     fileName: string;
     index: number;
+    /** どの参考画像から作ったか（img2img で複数指定したとき） */
+    referenceIndex?: number;
     seed?: number;
     prompt: string;
   }[];
   generatedAt: string;
 }
 
-/** ZIP 内のファイル名。通し番号は 3 桁でそろえる */
-export function imageFileName(index: number): string {
-  return `gravure-${String(index).padStart(3, '0')}.jpg`;
+/**
+ * ZIP 内のファイル名。通し番号は 3 桁でそろえる。
+ * 参考画像が複数あるときは、どれ由来かが分かるよう番号を挟む。
+ */
+export function imageFileName(index: number, referenceIndex?: number): string {
+  const numbered = String(index).padStart(3, '0');
+  if (referenceIndex === undefined) return `gravure-${numbered}.jpg`;
+  return `gravure-${String(referenceIndex).padStart(2, '0')}-${numbered}.jpg`;
 }
 
 export function buildKdpMetadata(
@@ -296,8 +310,14 @@ export function buildKdpMetadata(
     },
     images: shots.map((shot, i) => ({
       // ZIP 内のファイル名と合わせる（除外ぶんを詰めた並び順）
-      fileName: imageFileName(i + 1),
+      fileName: imageFileName(
+        shot.referenceIndex === undefined
+          ? i + 1
+          : shots.filter((s, j) => j <= i && s.referenceIndex === shot.referenceIndex).length,
+        shot.referenceIndex,
+      ),
       index: i + 1,
+      referenceIndex: shot.referenceIndex,
       seed: shot.seed,
       prompt: shot.prompt,
     })),
