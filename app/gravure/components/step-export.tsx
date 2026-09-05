@@ -68,6 +68,19 @@ export function StepExport({
       title="エクスポート"
       description="生成した画像と KDP 用メタデータを書き出します。"
     >
+      {/* 画像が無いとボタンが全部 disabled になる。押しても無反応に見えるので理由を出す */}
+      {shots.length === 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 px-4 py-3">
+          <p className="text-sm font-bold text-amber-100">
+            書き出せる画像がありません
+          </p>
+          <p className="mt-1 text-xs text-amber-100/70">
+            ダウンロードボタンは画像が 1 枚以上できてから押せるようになります。
+            ステップ 2 に戻って一括生成を実行してください。
+          </p>
+        </div>
+      )}
+
       <Card>
         <dl className="grid gap-2 text-sm sm:grid-cols-3">
           <div className="flex gap-2">

@@ -28,6 +28,50 @@ async function measure(
 }
 
 /**
+ * モードごとの送り先とペイロードを組み立てる。
+ * txt2img は JSON、img2img は multipart（画像を添えるため）。
+ */
+function buildRequest(
+  request: PromptSettings,
+  seed: number | undefined,
+  reference: File | null,
+): [string, RequestInit] {
+  if (request.mode === 'img2img') {
+    if (!reference) throw new Error('参考画像が選択されていません。');
+
+    const form = new FormData();
+    form.append('image', reference);
+    form.append('prompt', request.prompt);
+    form.append('jobType', request.img2imgModel);
+    form.append('negativePrompt', request.negativePrompt);
+    form.append('strength', String(request.strength));
+    form.append('stylePreset', request.stylePreset);
+    if (seed !== undefined) form.append('seed', String(seed));
+
+    // Content-Type は fetch に決めさせる（境界文字列を付けてもらう）
+    return ['/api/gravure/img2img', { method: 'POST', body: form }];
+  }
+
+  return [
+    '/api/gravure/generate',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: request.prompt,
+        negativePrompt: request.negativePrompt,
+        stylePreset: request.stylePreset,
+        width: request.width,
+        height: request.height,
+        steps: request.steps,
+        guidanceScale: request.guidanceScale,
+        seed,
+      }),
+    },
+  ];
+}
+
+/**
  * 一括生成の進行を持つ。
  *
  * Prodia は 1 リクエスト 1 枚なので、枚数ぶん順番に叩く。
@@ -69,7 +113,7 @@ export function useBatchGeneration() {
   }, [releaseUrls]);
 
   const start = useCallback(
-    async (count: number, request: PromptSettings) => {
+    async (count: number, request: PromptSettings, reference: File | null = null) => {
       // 前回ぶんは破棄してから始める
       releaseUrls();
       setShots([]);
@@ -88,24 +132,12 @@ export function useBatchGeneration() {
         if (controller.signal.aborted) break;
 
         const index = i + 1;
+        // 種を固定すると同じ絵ばかりになるので 1 枚ずつずらす
+        const seed = request.baseSeed === undefined ? undefined : request.baseSeed + i;
+
         try {
-          const response = await fetch('/api/gravure/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prompt: request.prompt,
-              negativePrompt: request.negativePrompt,
-              stylePreset: request.stylePreset,
-              width: request.width,
-              height: request.height,
-              steps: request.steps,
-              guidanceScale: request.guidanceScale,
-              // 種を固定すると同じ絵ばかりになるので 1 枚ずつずらす
-              seed:
-                request.baseSeed === undefined ? undefined : request.baseSeed + i,
-            }),
-            signal: controller.signal,
-          });
+          const [url, init] = buildRequest(request, seed, reference);
+          const response = await fetch(url, { ...init, signal: controller.signal });
 
           const data = await response.json();
 

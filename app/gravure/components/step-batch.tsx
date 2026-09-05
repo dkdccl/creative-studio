@@ -3,9 +3,10 @@
 import {
   SECONDS_PER_IMAGE,
   formatRemaining,
-  type BatchSize,
   type PromptSettings,
 } from '@/lib/gravure';
+
+import { downloadShot } from '@/lib/gravure-export';
 
 import { Card, ErrorNote, PrimaryButton, SecondaryButton, StepShell } from './ui';
 import type { useBatchGeneration } from './use-batch-generation';
@@ -16,11 +17,13 @@ export function StepBatch({
   batch,
   count,
   settings,
+  reference,
   onNext,
 }: {
   batch: Batch;
-  count: BatchSize;
+  count: number;
   settings: PromptSettings;
+  reference: File | null;
   onNext: () => void;
 }) {
   const { shots, failures, status, completed, total, fatalError, isRunning } = batch;
@@ -55,7 +58,7 @@ export function StepBatch({
               </div>
             </dl>
           </Card>
-          <PrimaryButton type="button" onClick={() => batch.start(count, settings)}>
+          <PrimaryButton type="button" onClick={() => batch.start(count, settings, reference)}>
             ⚡ 一括生成開始
           </PrimaryButton>
           <p className="text-xs text-violet-200/40">
@@ -94,7 +97,7 @@ export function StepBatch({
               </SecondaryButton>
             ) : (
               <>
-                <SecondaryButton type="button" onClick={() => batch.start(count, settings)}>
+                <SecondaryButton type="button" onClick={() => batch.start(count, settings, reference)}>
                   ↻ もう一度生成
                 </SecondaryButton>
                 <PrimaryButton
@@ -126,6 +129,15 @@ export function StepBatch({
                   <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
                     {shot.index}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => downloadShot(shot)}
+                    aria-label={`${shot.index} 枚目を JPEG でダウンロード`}
+                    title="JPEG でダウンロード"
+                    className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-bold text-white opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    ⬇
+                  </button>
                 </li>
               ))}
             </ul>

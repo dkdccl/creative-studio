@@ -30,9 +30,15 @@ export interface PdfOptions {
   upscaleToTargetDpi: boolean;
 }
 
+/**
+ * 既定は「A4 で 300 DPI」。KDP 向けの指定に合わせている。
+ * FLUX.2 の上限 1920px では A4 の 300 DPI に画素が足りないので、
+ * 既定で引き伸ばしを入れて 300 DPI を満たす。
+ * 補間なしの本物の 300 DPI が要る場合は native-300dpi を選ぶ。
+ */
 export const DEFAULT_PDF_OPTIONS: PdfOptions = {
-  pageMode: 'native-300dpi',
-  upscaleToTargetDpi: false,
+  pageMode: 'a4',
+  upscaleToTargetDpi: true,
 };
 
 /** ポイント幅に画素数を収めたときの実効 DPI */

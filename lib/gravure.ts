@@ -39,6 +39,56 @@ export const STYLE_OPTIONS = [
   { value: 'fantasy-art', label: 'ファンタジー' },
 ] as const;
 
+/** 生成のやり方。テキストから作るか、参考画像から派生させるか */
+export type GenerationMode = 'txt2img' | 'img2img';
+
+/**
+ * img2img で選べるモデル。
+ *
+ * klein は指示どおり既定にしているが、Prodia のスキーマ上 strength も
+ * negative_prompt も持たない（SDXL img2img は両方持つので記載漏れではない）。
+ * 派生度を調整したい場合は strength 対応のモデルを選ぶ。
+ */
+export const IMG2IMG_MODELS = [
+  {
+    value: 'inference.flux-2.klein.img2img.v1',
+    label: 'FLUX.2 [klein]（低コスト）',
+    supportsStrength: false,
+    supportsNegativePrompt: false,
+    steps: { min: 1, max: 4, default: 4 },
+  },
+  {
+    value: 'inference.flux.dev.img2img.v2',
+    label: 'FLUX.1 [dev]（ストレングス対応）',
+    supportsStrength: true,
+    supportsNegativePrompt: false,
+    steps: { min: 1, max: 100, default: 28 },
+  },
+  {
+    value: 'inference.sdxl.img2img.v1',
+    label: 'SDXL（ストレングス + ネガティブ対応）',
+    supportsStrength: true,
+    supportsNegativePrompt: true,
+    steps: { min: 1, max: 100, default: 25 },
+  },
+] as const;
+
+export type Img2ImgModel = (typeof IMG2IMG_MODELS)[number]['value'];
+
+export function img2imgModel(value: string) {
+  return IMG2IMG_MODELS.find((model) => model.value === value) ?? IMG2IMG_MODELS[0];
+}
+
+/** アップロードを受け付ける形式 */
+export const ACCEPTED_UPLOAD_TYPES = ['image/jpeg', 'image/png'] as const;
+
+/** Prodia の入力画像は 1920x1920 まで */
+export const MAX_UPLOAD_PIXELS = 1920;
+export const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
+
+/** img2img の枚数は 1〜5 枚 */
+export const IMG2IMG_BATCH_SIZES = [1, 2, 3, 4, 5] as const;
+
 /** 1 回の生成に渡す設定。ステップ 1 で決めてステップ 2 で使う */
 export interface PromptSettings {
   prompt: string;
@@ -50,6 +100,12 @@ export interface PromptSettings {
   guidanceScale: number;
   /** 指定があれば 1 枚ごとに +1 して全部違う絵にする */
   baseSeed?: number;
+
+  // --- img2img のときだけ使う ---
+  mode: GenerationMode;
+  img2imgModel: Img2ImgModel;
+  /** 参考画像からどれだけ離すか。0 に近いほど元画像寄り */
+  strength: number;
 }
 
 export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
@@ -60,6 +116,9 @@ export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
   height: 1216,
   steps: 28,
   guidanceScale: 4,
+  mode: 'txt2img',
+  img2imgModel: 'inference.flux-2.klein.img2img.v1',
+  strength: 0.7,
 };
 
 /** 生成できた 1 枚 */

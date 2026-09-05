@@ -6,7 +6,6 @@ import {
   CHECKLIST_ITEMS,
   DEFAULT_PROMPT_SETTINGS,
   EMPTY_METADATA,
-  type BatchSize,
   type ChecklistId,
   type GravureMetadata,
   type PromptSettings,
@@ -26,7 +25,9 @@ import { useBatchGeneration } from './use-batch-generation';
 export default function GravureStudio() {
   const [step, setStep] = useState(1);
   const [settings, setSettings] = useState<PromptSettings>(DEFAULT_PROMPT_SETTINGS);
-  const [count, setCount] = useState<BatchSize>(5);
+  const [count, setCount] = useState<number>(5);
+  // img2img の参考画像。txt2img のときは null のまま
+  const [reference, setReference] = useState<File | null>(null);
   const [metadata, setMetadata] = useState<GravureMetadata>(EMPTY_METADATA);
   const [checked, setChecked] = useState<ChecklistId[]>([]);
 
@@ -61,6 +62,8 @@ export default function GravureStudio() {
           onChange={setSettings}
           count={count}
           onCountChange={setCount}
+          reference={reference}
+          onReferenceChange={setReference}
           onNext={() => setStep(2)}
         />
       )}
@@ -70,6 +73,7 @@ export default function GravureStudio() {
           batch={batch}
           count={count}
           settings={settings}
+          reference={reference}
           onNext={() => setStep(3)}
         />
       )}
