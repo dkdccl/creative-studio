@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { COLLAGE_NEGATIVE, withSingleSubject } from '@/lib/gravure';
 import {
   generateImageWithProdia,
   isProdiaConfigured,
@@ -57,8 +58,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 
-  const prompt = String(body.prompt ?? '').trim();
-  if (!prompt) {
+  const rawPrompt = String(body.prompt ?? '').trim();
+  // 4 分割のような絵が出るのはモデルがそう描いたときだけなので、指示で潰す
+  const enforce = body.enforceSingleSubject !== false;
+  const prompt = withSingleSubject(rawPrompt, enforce);
+  if (!rawPrompt) {
     return NextResponse.json(
       { error: 'プロンプトを入力してください。' },
       { status: 400 },
@@ -71,7 +75,9 @@ export async function POST(request: Request) {
   try {
     const image = await generateImageWithProdia({
       prompt,
-      negativePrompt: String(body.negativePrompt ?? ''),
+      negativePrompt: [String(body.negativePrompt ?? ''), enforce ? COLLAGE_NEGATIVE : '']
+        .filter(Boolean)
+        .join(', '),
       width: optionalNumber(body.width),
       height: optionalNumber(body.height),
       steps: optionalNumber(body.steps),
