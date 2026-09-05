@@ -268,9 +268,10 @@ export function buildKdpMetadata(
       provider: 'Prodia',
       jobType: shots[0]?.jobType ?? '',
     },
-    images: shots.map((shot) => ({
-      fileName: imageFileName(shot.index),
-      index: shot.index,
+    images: shots.map((shot, i) => ({
+      // ZIP 内のファイル名と合わせる（除外ぶんを詰めた並び順）
+      fileName: imageFileName(i + 1),
+      index: i + 1,
       seed: shot.seed,
       prompt: shot.prompt,
     })),

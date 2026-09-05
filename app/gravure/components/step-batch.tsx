@@ -26,7 +26,17 @@ export function StepBatch({
   reference: File | null;
   onNext: () => void;
 }) {
-  const { shots, failures, status, completed, total, fatalError, isRunning } = batch;
+  const {
+    shots,
+    excludedIds,
+    toggleExcluded,
+    failures,
+    status,
+    completed,
+    total,
+    fatalError,
+    isRunning,
+  } = batch;
 
   const denominator = total || count;
   const percent = denominator === 0 ? 0 : (completed / denominator) * 100;
@@ -103,7 +113,7 @@ export function StepBatch({
                 <PrimaryButton
                   type="button"
                   onClick={onNext}
-                  disabled={shots.length === 0}
+                  disabled={batch.includedShots.length === 0}
                 >
                   メタデータ設定へ →
                 </PrimaryButton>
@@ -113,34 +123,64 @@ export function StepBatch({
 
           {fatalError && <ErrorNote>{fatalError}</ErrorNote>}
 
-          {/* サムネイル */}
+          {/* 1 枚ずつのカード。隙間なく並べると 1 枚の合成画像に見えてしまうので離す */}
           {shots.length > 0 && (
-            <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
-              {shots.map((shot) => (
-                <li key={shot.id} className="group relative">
-                  {/* object URL のため next/image では最適化できない */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={shot.objectUrl}
-                    alt={`生成画像 ${shot.index}`}
-                    loading="lazy"
-                    className="aspect-[3/4] w-full rounded-lg object-cover ring-1 ring-violet-400/20"
-                  />
-                  <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                    {shot.index}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => downloadShot(shot)}
-                    aria-label={`${shot.index} 枚目を JPEG でダウンロード`}
-                    title="JPEG でダウンロード"
-                    className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[11px] font-bold text-white opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100"
-                  >
-                    ⬇
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="text-xs text-violet-200/50">
+                {shots.length} 枚とも別々のファイルです。書き出しに含めない画像は
+                「除外」を押してください（{excludedIds.length} 枚を除外中）。
+              </p>
+              <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {shots.map((shot) => {
+                  const excluded = excludedIds.includes(shot.id);
+                  return (
+                    <li
+                      key={shot.id}
+                      className={`overflow-hidden rounded-2xl border bg-black/25 transition ${
+                        excluded
+                          ? 'border-white/10 opacity-40'
+                          : 'border-violet-400/25'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between px-3 py-2">
+                        <span className="text-xs font-bold text-violet-100">
+                          画像 {shot.index}
+                        </span>
+                        <span className="text-[11px] text-violet-200/40">
+                          {shot.width}×{shot.height}
+                        </span>
+                      </div>
+
+                      {/* object URL のため next/image では最適化できない */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={shot.objectUrl}
+                        alt={`生成画像 ${shot.index}`}
+                        loading="lazy"
+                        className="max-h-80 w-full bg-black/40 object-contain"
+                      />
+
+                      <div className="flex flex-wrap gap-2 px-3 py-3">
+                        <SecondaryButton
+                          type="button"
+                          className="px-3 py-1.5 text-xs"
+                          onClick={() => downloadShot(shot)}
+                        >
+                          ⬇ この画像を保存
+                        </SecondaryButton>
+                        <SecondaryButton
+                          type="button"
+                          className="px-3 py-1.5 text-xs"
+                          onClick={() => toggleExcluded(shot.id)}
+                        >
+                          {excluded ? '↩ 戻す' : '✕ 除外'}
+                        </SecondaryButton>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
 
           {failures.length > 0 && (

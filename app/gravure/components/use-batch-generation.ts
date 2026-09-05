@@ -86,6 +86,9 @@ export function useBatchGeneration() {
   const [total, setTotal] = useState(0);
   const [fatalError, setFatalError] = useState<string | null>(null);
 
+  // 書き出しから外した画像の id。人物が写らなかったコマなどを落とすため
+  const [excludedIds, setExcludedIds] = useState<string[]>([]);
+
   const abortRef = useRef<AbortController | null>(null);
   // revoke するために、今持っている object URL を実体で覚えておく
   const urlsRef = useRef<string[]>([]);
@@ -106,6 +109,7 @@ export function useBatchGeneration() {
     releaseUrls();
     setShots([]);
     setFailures([]);
+    setExcludedIds([]);
     setCompleted(0);
     setTotal(0);
     setFatalError(null);
@@ -118,6 +122,7 @@ export function useBatchGeneration() {
       releaseUrls();
       setShots([]);
       setFailures([]);
+      setExcludedIds([]);
       setCompleted(0);
       setFatalError(null);
       setTotal(count);
@@ -195,8 +200,18 @@ export function useBatchGeneration() {
     [releaseUrls],
   );
 
+  const toggleExcluded = useCallback((id: string) => {
+    setExcludedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  }, []);
+
   return {
     shots,
+    /** ZIP・PDF・メタデータに載せるぶん */
+    includedShots: shots.filter((shot) => !excludedIds.includes(shot.id)),
+    excludedIds,
+    toggleExcluded,
     failures,
     status,
     completed,

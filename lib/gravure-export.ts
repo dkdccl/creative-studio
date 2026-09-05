@@ -75,9 +75,10 @@ export async function buildZip(
   const zip = new JSZip();
 
   const images = zip.folder('images');
-  for (const shot of shots) {
-    images?.file(imageFileName(shot.index), shot.blob);
-  }
+  // 除外したぶんを飛ばして詰めるため、生成時の index ではなく並び順で振り直す
+  shots.forEach((shot, i) => {
+    images?.file(imageFileName(i + 1), shot.blob);
+  });
 
   zip.file(
     'kdp-metadata.json',
