@@ -26,8 +26,8 @@ export default function GravureStudio() {
   const [step, setStep] = useState(1);
   const [settings, setSettings] = useState<PromptSettings>(DEFAULT_PROMPT_SETTINGS);
   const [count, setCount] = useState<number>(5);
-  // img2img の参考画像。txt2img のときは null のまま
-  const [reference, setReference] = useState<File | null>(null);
+  // img2img の参考画像。複数枚まとめて指定できる
+  const [references, setReferences] = useState<File[]>([]);
   const [metadata, setMetadata] = useState<GravureMetadata>(EMPTY_METADATA);
   const [checked, setChecked] = useState<ChecklistId[]>([]);
 
@@ -62,8 +62,8 @@ export default function GravureStudio() {
           onChange={setSettings}
           count={count}
           onCountChange={setCount}
-          reference={reference}
-          onReferenceChange={setReference}
+          references={references}
+          onReferencesChange={setReferences}
           onNext={() => setStep(2)}
         />
       )}
@@ -73,7 +73,7 @@ export default function GravureStudio() {
           batch={batch}
           count={count}
           settings={settings}
-          reference={reference}
+          references={references}
           onNext={() => setStep(3)}
         />
       )}

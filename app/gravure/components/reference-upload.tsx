@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import {
   ACCEPTED_UPLOAD_TYPES,
+  MAX_REFERENCES,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_PIXELS,
 } from '@/lib/gravure';
@@ -46,140 +47,183 @@ async function shrinkIfNeeded(file: File): Promise<File> {
   });
 }
 
+/** サムネイル 1 枚ぶん。object URL の後始末をここで完結させる */
+function Thumb({
+  file,
+  position,
+  onRemove,
+  onMove,
+  canMoveUp,
+  canMoveDown,
+}: {
+  file: File;
+  position: number;
+  onRemove: () => void;
+  onMove: (direction: -1 | 1) => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  return (
+    <li className="overflow-hidden rounded-xl border border-violet-400/25 bg-black/25">
+      <div className="flex items-center justify-between px-3 py-2">
+        <span className="text-xs font-bold text-violet-100">参考画像 {position}</span>
+        <span className="truncate pl-2 text-[11px] text-violet-200/40">
+          {Math.round(file.size / 1024)} KB
+        </span>
+      </div>
+      {url && (
+        // object URL のため next/image では最適化できない
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt={`参考画像 ${position}`}
+          className="max-h-40 w-full bg-black/40 object-contain"
+        />
+      )}
+      <div className="flex flex-wrap gap-1.5 px-3 py-2">
+        <SecondaryButton
+          type="button"
+          className="px-2 py-1 text-xs"
+          onClick={onRemove}
+        >
+          ✕ 削除
+        </SecondaryButton>
+        <SecondaryButton
+          type="button"
+          className="px-2 py-1 text-xs"
+          onClick={() => onMove(-1)}
+          disabled={!canMoveUp}
+          aria-label={`参考画像 ${position} を前へ`}
+        >
+          ↑
+        </SecondaryButton>
+        <SecondaryButton
+          type="button"
+          className="px-2 py-1 text-xs"
+          onClick={() => onMove(1)}
+          disabled={!canMoveDown}
+          aria-label={`参考画像 ${position} を後ろへ`}
+        >
+          ↓
+        </SecondaryButton>
+      </div>
+    </li>
+  );
+}
+
 export function ReferenceUpload({
   value,
   onChange,
 }: {
-  value: File | null;
-  onChange: (file: File | null) => void;
+  value: File[];
+  onChange: (files: File[]) => void;
 }) {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // プレビュー用の object URL は差し替えのたびに捨てる
-  useEffect(() => {
-    if (!value) {
-      setPreviewUrl(null);
-      setSize(null);
-      return;
-    }
-    const url = URL.createObjectURL(value);
-    setPreviewUrl(url);
-
-    let cancelled = false;
-    createImageBitmap(value)
-      .then((bitmap) => {
-        if (!cancelled) setSize({ width: bitmap.width, height: bitmap.height });
-        bitmap.close();
-      })
-      .catch(() => undefined);
-
-    return () => {
-      cancelled = true;
-      URL.revokeObjectURL(url);
-    };
-  }, [value]);
-
-  async function accept(file: File | undefined) {
+  async function accept(incoming: FileList | null) {
     setError(null);
-    if (!file) return;
+    const files = Array.from(incoming ?? []);
+    if (files.length === 0) return;
 
-    if (!ACCEPTED_UPLOAD_TYPES.includes(file.type as (typeof ACCEPTED_UPLOAD_TYPES)[number])) {
-      setError('JPG または PNG を選んでください。');
-      return;
-    }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setError(`ファイルが大きすぎます（${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB まで）。`);
+    const room = MAX_REFERENCES - value.length;
+    if (room <= 0) {
+      setError(`参考画像は ${MAX_REFERENCES} 枚までです。`);
       return;
     }
 
-    try {
-      onChange(await shrinkIfNeeded(file));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '画像を読み込めませんでした。');
+    const problems: string[] = [];
+    const accepted: File[] = [];
+
+    for (const file of files.slice(0, room)) {
+      if (
+        !ACCEPTED_UPLOAD_TYPES.includes(file.type as (typeof ACCEPTED_UPLOAD_TYPES)[number])
+      ) {
+        problems.push(`${file.name}: JPG / PNG ではありません`);
+        continue;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        problems.push(`${file.name}: サイズが大きすぎます`);
+        continue;
+      }
+      try {
+        accepted.push(await shrinkIfNeeded(file));
+      } catch {
+        problems.push(`${file.name}: 読み込めませんでした`);
+      }
     }
+
+    if (files.length > room) {
+      problems.push(`${MAX_REFERENCES} 枚を超えるぶんは取り込みませんでした`);
+    }
+    if (problems.length > 0) setError(problems.join(' / '));
+    if (accepted.length > 0) onChange([...value, ...accepted]);
+
+    // 同じファイルを選び直せるように input を空にしておく
+    if (inputRef.current) inputRef.current.value = '';
+  }
+
+  function move(index: number, direction: -1 | 1) {
+    const next = [...value];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
   }
 
   return (
     <div>
-      <span className="mb-2 block text-sm font-bold text-violet-50">参考画像</span>
+      <span className="mb-2 block text-sm font-bold text-violet-50">
+        参考画像（{value.length} / {MAX_REFERENCES} 枚）
+      </span>
 
-      {previewUrl ? (
-        <div className="flex flex-wrap items-start gap-4 rounded-2xl border border-violet-400/25 bg-black/25 p-4">
-          {/* object URL のため next/image では最適化できない */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={previewUrl}
-            alt="参考画像のプレビュー"
-            className="h-40 w-auto rounded-xl object-contain"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-violet-50">{value?.name}</p>
-            <p className="mt-1 text-xs text-violet-200/50">
-              {size && `${size.width}×${size.height} / `}
-              {value ? `${Math.round(value.size / 1024)} KB` : ''}
-            </p>
-            {size && Math.max(size.width, size.height) === MAX_UPLOAD_PIXELS && (
-              <p className="mt-1 text-xs text-violet-200/40">
-                Prodia の上限に合わせて {MAX_UPLOAD_PIXELS}px に縮小しました。
-              </p>
-            )}
-            <SecondaryButton
-              type="button"
-              className="mt-3"
-              onClick={() => {
-                onChange(null);
-                if (inputRef.current) inputRef.current.value = '';
-              }}
-            >
-              画像を外す
-            </SecondaryButton>
-          </div>
-        </div>
-      ) : (
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            void accept(e.dataTransfer.files?.[0]);
-          }}
-          className={`rounded-2xl border-2 border-dashed p-8 text-center transition ${
-            dragging
-              ? 'border-violet-300 bg-violet-500/15'
-              : 'border-violet-400/30 bg-black/20'
-          }`}
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          void accept(e.dataTransfer.files);
+        }}
+        className={`rounded-2xl border-2 border-dashed p-6 text-center transition ${
+          dragging ? 'border-violet-300 bg-violet-500/15' : 'border-violet-400/30 bg-black/20'
+        }`}
+      >
+        <p className="text-3xl">🖼️</p>
+        <p className="mt-2 text-sm font-bold text-violet-50">
+          ここに画像をドラッグ＆ドロップ（複数可）
+        </p>
+        <p className="mt-1 text-xs text-violet-200/50">
+          JPG / PNG・1 枚 {Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB まで。
+          {MAX_UPLOAD_PIXELS}px を超える画像は自動で縮小します。
+        </p>
+        <SecondaryButton
+          type="button"
+          className="mt-4"
+          onClick={() => inputRef.current?.click()}
         >
-          <p className="text-3xl">🖼️</p>
-          <p className="mt-2 text-sm font-bold text-violet-50">
-            ここに画像をドラッグ＆ドロップ
-          </p>
-          <p className="mt-1 text-xs text-violet-200/50">
-            JPG / PNG・{Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB まで。
-            {MAX_UPLOAD_PIXELS}px を超える画像は自動で縮小します。
-          </p>
-          <SecondaryButton
-            type="button"
-            className="mt-4"
-            onClick={() => inputRef.current?.click()}
-          >
-            ファイルを選ぶ
-          </SecondaryButton>
-        </div>
-      )}
+          ファイルを選ぶ
+        </SecondaryButton>
+      </div>
 
       <input
         ref={inputRef}
         type="file"
         accept={ACCEPTED_UPLOAD_TYPES.join(',')}
-        onChange={(e) => void accept(e.target.files?.[0])}
+        multiple
+        onChange={(e) => void accept(e.target.files)}
         className="hidden"
       />
 
@@ -187,6 +231,22 @@ export function ReferenceUpload({
         <div className="mt-3">
           <ErrorNote>{error}</ErrorNote>
         </div>
+      )}
+
+      {value.length > 0 && (
+        <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {value.map((file, i) => (
+            <Thumb
+              key={`${file.name}-${file.size}-${i}`}
+              file={file}
+              position={i + 1}
+              canMoveUp={i > 0}
+              canMoveDown={i < value.length - 1}
+              onMove={(direction) => move(i, direction)}
+              onRemove={() => onChange(value.filter((_, index) => index !== i))}
+            />
+          ))}
+        </ul>
       )}
     </div>
   );

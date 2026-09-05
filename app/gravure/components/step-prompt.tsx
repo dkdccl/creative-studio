@@ -27,16 +27,16 @@ export function StepPrompt({
   onChange,
   count,
   onCountChange,
-  reference,
-  onReferenceChange,
+  references,
+  onReferencesChange,
   onNext,
 }: {
   settings: PromptSettings;
   onChange: (next: PromptSettings) => void;
   count: number;
   onCountChange: (next: number) => void;
-  reference: File | null;
-  onReferenceChange: (file: File | null) => void;
+  references: File[];
+  onReferencesChange: (files: File[]) => void;
   onNext: () => void;
 }) {
   const set = <K extends keyof PromptSettings>(key: K, value: PromptSettings[K]) =>
@@ -46,7 +46,10 @@ export function StepPrompt({
   const model = img2imgModel(settings.img2imgModel);
   const sizes: readonly number[] = isImg2Img ? IMG2IMG_BATCH_SIZES : BATCH_SIZES;
   const canProceed =
-    settings.prompt.trim() !== '' && (!isImg2Img || reference !== null);
+    settings.prompt.trim() !== '' && (!isImg2Img || references.length > 0);
+  // img2img は参考画像 1 枚ごとに count 枚ずつ作る
+  const totalShots =
+    isImg2Img && references.length > 0 ? count * references.length : count;
 
   function switchMode(mode: GenerationMode) {
     // 枚数の選択肢が違うので、切り替え時に範囲内へ寄せる
@@ -87,7 +90,7 @@ export function StepPrompt({
 
       {isImg2Img && (
         <>
-          <ReferenceUpload value={reference} onChange={onReferenceChange} />
+          <ReferenceUpload value={references} onChange={onReferencesChange} />
 
           <Field label="モデル" hint="klein は低コスト">
             <Select
@@ -176,7 +179,10 @@ export function StepPrompt({
           </Select>
         </Field>
 
-        <Field label="生成枚数">
+        <Field
+          label="生成枚数"
+          hint={isImg2Img ? '参考画像 1 枚あたり' : undefined}
+        >
           <Select
             value={count}
             onChange={(e) => onCountChange(Number(e.target.value))}
@@ -281,9 +287,12 @@ export function StepPrompt({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-violet-200/50">
-          {count} 枚で所要時間の目安は{' '}
-          {formatRemaining(count * SECONDS_PER_IMAGE).replace('残り約 ', '約 ')}（
-          {count} 回ぶんの API 料金がかかります）
+          {isImg2Img && references.length > 0
+            ? `参考画像 ${references.length} 枚 × ${count} 枚 = 合計 ${totalShots} 枚。`
+            : `${count} 枚。`}
+          所要時間の目安は{' '}
+          {formatRemaining(totalShots * SECONDS_PER_IMAGE).replace('残り約 ', '約 ')}（
+          {totalShots} 回ぶんの API 料金がかかります）
         </p>
         <PrimaryButton type="button" onClick={onNext} disabled={!canProceed}
         >
