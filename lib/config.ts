@@ -28,6 +28,11 @@ export const config = {
     apiKey: resolve(process.env.OPENAI_API_KEY),
     imageModel: resolve(process.env.OPENAI_IMAGE_MODEL) ?? 'gpt-image-1',
     textModel: resolve(process.env.OPENAI_TEXT_MODEL) ?? 'gpt-5.5',
+    /** 画像を見て判断させるとき用。テキストと分けておくと差し替えやすい */
+    visionModel:
+      resolve(process.env.OPENAI_VISION_MODEL) ??
+      resolve(process.env.OPENAI_TEXT_MODEL) ??
+      'gpt-5.5',
   },
   stability: {
     apiKey: resolve(process.env.STABILITY_API_KEY),

@@ -1,10 +1,13 @@
 'use client';
 
+import { useState } from 'react';
+
 import {
   SECONDS_PER_IMAGE,
   formatRemaining,
   type PromptSettings,
 } from '@/lib/gravure';
+import type { DetectResult } from '@/app/api/gravure/detect-people/route';
 
 import { downloadShot } from '@/lib/gravure-export';
 
@@ -41,6 +44,57 @@ export function StepBatch({
   const denominator = total || count;
   const percent = denominator === 0 ? 0 : (completed / denominator) * 100;
   const remainingSeconds = Math.max(0, denominator - completed) * SECONDS_PER_IMAGE;
+
+  const [isDetecting, setIsDetecting] = useState(false);
+  const [detectNote, setDetectNote] = useState<string | null>(null);
+  const [detectError, setDetectError] = useState<string | null>(null);
+
+  /** 人物が写っていないコマを OpenAI に見てもらって外す */
+  async function onAutoExclude() {
+    setIsDetecting(true);
+    setDetectNote(null);
+    setDetectError(null);
+
+    try {
+      const form = new FormData();
+      shots.forEach((shot) => {
+        form.append('images', shot.blob, `${shot.index}.jpg`);
+        form.append('indexes', String(shot.index));
+      });
+
+      const response = await fetch('/api/gravure/detect-people', {
+        method: 'POST',
+        body: form,
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error ?? `HTTP ${response.status}`);
+
+      const results: DetectResult[] = data.results ?? [];
+      const withoutPerson = results.filter((result) => !result.hasPerson);
+      const undecided = results.filter((result) => result.error);
+
+      // すでに除外済みのものを二重に切り替えないよう、状態を見てから押す
+      withoutPerson.forEach((result) => {
+        const shot = shots.find((item) => item.index === result.index);
+        if (shot && !excludedIds.includes(shot.id)) toggleExcluded(shot.id);
+      });
+
+      setDetectNote(
+        withoutPerson.length === 0
+          ? `${results.length} 枚すべてに人物が写っていました。除外はありません。`
+          : `人物が写っていない ${withoutPerson.length} 枚を除外しました。` +
+              (undecided.length > 0
+                ? `（${undecided.length} 枚は判定できなかったため残しています）`
+                : ''),
+      );
+    } catch (err) {
+      setDetectError(
+        err instanceof Error ? `判定に失敗しました: ${err.message}` : '判定に失敗しました。',
+      );
+    } finally {
+      setIsDetecting(false);
+    }
+  }
 
   return (
     <StepShell
@@ -126,6 +180,25 @@ export function StepBatch({
           {/* 1 枚ずつのカード。隙間なく並べると 1 枚の合成画像に見えてしまうので離す */}
           {shots.length > 0 && (
             <>
+              <div className="flex flex-wrap items-center gap-3">
+                <SecondaryButton
+                  type="button"
+                  className="px-3 py-1.5 text-xs"
+                  onClick={onAutoExclude}
+                  disabled={isDetecting || shots.length === 0}
+                >
+                  {isDetecting ? '判定中…' : '🔍 人物なしを自動判定して除外'}
+                </SecondaryButton>
+                <span className="text-[11px] text-violet-200/40">
+                  OpenAI の画像判定を使います（1 枚につき 1 回ぶんの料金）
+                </span>
+              </div>
+
+              {detectNote && (
+                <p className="text-xs text-violet-200/60">{detectNote}</p>
+              )}
+              {detectError && <ErrorNote>{detectError}</ErrorNote>}
+
               <p className="text-xs text-violet-200/50">
                 {shots.length} 枚とも別々のファイルです。書き出しに含めない画像は
                 「除外」を押してください（{excludedIds.length} 枚を除外中）。

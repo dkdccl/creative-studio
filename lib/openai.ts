@@ -54,6 +54,38 @@ export async function generateText({
   return response.choices[0]?.message?.content?.trim() ?? '';
 }
 
+/**
+ * 画像に人物が写っているかを見る。
+ *
+ * detail: 'low' を指定しているのは、はい/いいえの判定に高解像度は要らず、
+ * 送るトークン量がそのまま料金になるため。
+ * 判定できなかったときは true を返す。誤って残すほうが、
+ * 使いたかった画像を黙って捨てるより害が小さい。
+ */
+export async function detectPerson(dataUrl: string): Promise<boolean> {
+  const openai = getOpenAIClient();
+
+  const response = await openai.chat.completions.create({
+    model: config.openai.visionModel,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'この画像に人物が写っていますか。写っていれば yes、写っていなければ no とだけ答えてください。',
+          },
+          { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
+        ],
+      },
+    ],
+  });
+
+  const answer = response.choices[0]?.message?.content?.trim().toLowerCase() ?? '';
+  if (answer.startsWith('n')) return false;
+  return true;
+}
+
 export interface GenerateImageOptions {
   /** 生成したい絵の説明（日本語可） */
   prompt: string;
