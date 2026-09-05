@@ -19,5 +19,8 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  // gravure-ai-gen は独自の tsconfig を持つ別プロジェクト（Next 16 / React 19）。
+  // include の "**/*.tsx" で拾ってしまうと、こちらの React 18 の型と衝突して
+  // ルートの typecheck とビルドが落ちる。
+  "exclude": ["node_modules", "gravure-ai-gen"]
 }
