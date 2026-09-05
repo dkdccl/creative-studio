@@ -45,10 +45,10 @@ function baseName(metadata: GravureMetadata): string {
   return toSafeFileName(metadata.title, 'gravure');
 }
 
-/** 1 枚だけ JPEG で落とす。ファイル名は gravure-{日時}[-{通し番号}].jpg */
-export function downloadShot(shot: GravureShot, total = 0): void {
-  const suffix = total === 1 ? '' : `-${String(shot.index).padStart(3, '0')}`;
-  downloadBlob(`gravure-${timestamp()}${suffix}.jpg`, shot.blob);
+/** 1 枚だけ JPEG で落とす。ファイル名は指定どおり 画像{N}-gravure-{NNN}.jpg */
+export function downloadShot(shot: GravureShot): void {
+  const numbered = String(shot.index).padStart(3, '0');
+  downloadBlob(`画像${shot.index}-gravure-${numbered}.jpg`, shot.blob);
 }
 
 /** メタデータだけを JSON で落とす */
