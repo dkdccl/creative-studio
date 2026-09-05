@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 
-import ImageGenerator from './components/image-generator';
+import GravureStudio from './components/gravure-studio';
 
 export const metadata: Metadata = {
   title: 'グラビア画像生成',
-  description: 'Prodia の FLUX.2 [dev] でプロンプトから画像を生成します。',
+  description:
+    'Prodia の FLUX.2 [dev] で画像を一括生成し、Amazon KDP 用のメタデータごと書き出します。',
 };
 
 export default function GravurePage() {
@@ -29,12 +30,12 @@ export default function GravurePage() {
             </span>
           </h1>
           <p className="mt-2 text-sm text-violet-100/60">
-            Prodia の FLUX.2 [dev] で画像を生成します。プロンプトは英語のほうが
-            安定した結果になります。
+            Prodia の FLUX.2 [dev] で画像を一括生成し、Amazon KDP
+            用のメタデータごと書き出します。
           </p>
         </header>
 
-        <ImageGenerator />
+        <GravureStudio />
       </div>
     </main>
   );
