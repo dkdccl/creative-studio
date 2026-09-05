@@ -39,6 +39,29 @@ export const STYLE_OPTIONS = [
   { value: 'fantasy-art', label: 'ファンタジー' },
 ] as const;
 
+/**
+ * 1 枚に 1 人だけを写させるための指示。
+ *
+ * アプリ側で画像を合成することはないので、4 分割のような絵が出るのは
+ * モデルがそう描いたときだけ。プロンプトで単写真であることを明示して
+ * 起きにくくする。
+ */
+export const SINGLE_SUBJECT_SUFFIX =
+  'single subject, exactly one person, one single full-frame photograph, ' +
+  'not a collage, not a grid, no split panels, no multiple frames, no borders';
+
+/** ネガティブに入れられるモデル向け。上と同じ意図を否定側で書く */
+export const COLLAGE_NEGATIVE =
+  'collage, grid, multiple panels, split screen, contact sheet, photo montage, borders, frames';
+
+/** 指示を足したプロンプトを作る */
+export function withSingleSubject(prompt: string, enabled: boolean): string {
+  const body = prompt.trim();
+  if (!enabled || body === '') return body;
+  if (body.includes('single subject')) return body;
+  return `${body}, ${SINGLE_SUBJECT_SUFFIX}`;
+}
+
 /** 生成のやり方。テキストから作るか、参考画像から派生させるか */
 export type GenerationMode = 'txt2img' | 'img2img';
 
@@ -106,6 +129,8 @@ export interface PromptSettings {
   img2imgModel: Img2ImgModel;
   /** 参考画像からどれだけ離すか。0 に近いほど元画像寄り */
   strength: number;
+  /** 1 枚 1 人を守らせる指示をプロンプトに足すか */
+  enforceSingleSubject: boolean;
 }
 
 export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
@@ -119,6 +144,7 @@ export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
   mode: 'txt2img',
   img2imgModel: 'inference.flux-2.klein.img2img.v1',
   strength: 0.7,
+  enforceSingleSubject: true,
 };
 
 /** 生成できた 1 枚 */

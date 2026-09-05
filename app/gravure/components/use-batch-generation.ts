@@ -46,6 +46,7 @@ function buildRequest(
     form.append('negativePrompt', request.negativePrompt);
     form.append('strength', String(request.strength));
     form.append('stylePreset', request.stylePreset);
+    form.append('enforceSingleSubject', String(request.enforceSingleSubject));
     if (seed !== undefined) form.append('seed', String(seed));
 
     // Content-Type は fetch に決めさせる（境界文字列を付けてもらう）
@@ -65,6 +66,7 @@ function buildRequest(
         height: request.height,
         steps: request.steps,
         guidanceScale: request.guidanceScale,
+        enforceSingleSubject: request.enforceSingleSubject,
         seed,
       }),
     },

@@ -249,6 +249,24 @@ export function StepPrompt({
         </Field>
       </div>
 
+      <label className="flex cursor-pointer gap-3 rounded-xl border border-violet-400/20 bg-black/25 px-4 py-3 transition hover:border-violet-400/50">
+        <input
+          type="checkbox"
+          checked={settings.enforceSingleSubject}
+          onChange={(e) => set('enforceSingleSubject', e.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-violet-500"
+        />
+        <span>
+          <span className="block text-sm font-bold text-violet-50">
+            1 枚 1 人を強制する
+          </span>
+          <span className="mt-0.5 block text-xs text-violet-200/50">
+            4 分割のようなグリッド合成が返らないよう、プロンプトに単写真の指示を
+            足します。ネガティブに対応したモデルでは否定側にも入れます。
+          </span>
+        </span>
+      </label>
+
       <Field label="開始シード値" hint="空欄ならランダム。指定すると 1 枚ごとに +1">
         <TextInput
           type="number"

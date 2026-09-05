@@ -54,15 +54,24 @@ export async function generateText({
   return response.choices[0]?.message?.content?.trim() ?? '';
 }
 
+export interface ImageInspection {
+  /** 人物が写っているか */
+  hasPerson: boolean;
+  /** 複数コマを 1 枚にまとめた絵になっていないか */
+  isCollage: boolean;
+}
+
 /**
- * 画像に人物が写っているかを見る。
+ * 画像を 1 回見て、人物の有無とグリッド合成かどうかを同時に判定する。
  *
- * detail: 'low' を指定しているのは、はい/いいえの判定に高解像度は要らず、
+ * 2 つを別々に聞くと API 呼び出しが倍になるので 1 回にまとめている。
+ * detail: 'low' なのは、この程度の判定に高解像度は要らず、
  * 送るトークン量がそのまま料金になるため。
- * 判定できなかったときは true を返す。誤って残すほうが、
- * 使いたかった画像を黙って捨てるより害が小さい。
+ *
+ * 判定できなかったときは「人物あり・合成でない」を返す。
+ * 誤って残すほうが、使いたかった画像を黙って捨てるより害が小さい。
  */
-export async function detectPerson(dataUrl: string): Promise<boolean> {
+export async function inspectImage(dataUrl: string): Promise<ImageInspection> {
   const openai = getOpenAIClient();
 
   const response = await openai.chat.completions.create({
@@ -73,7 +82,13 @@ export async function detectPerson(dataUrl: string): Promise<boolean> {
         content: [
           {
             type: 'text',
-            text: 'この画像に人物が写っていますか。写っていれば yes、写っていなければ no とだけ答えてください。',
+            text:
+              'この画像について 2 つ答えてください。\n' +
+              '1. 人物が写っているか（person）\n' +
+              '2. 複数の写真をタイル状・格子状に並べた合成画像か（collage）。' +
+              '2分割や4分割のコマ割り、コンタクトシート状のものは collage とみなします。' +
+              '1枚の写真として自然に撮られたものは collage ではありません。\n' +
+              '{"person":true|false,"collage":true|false} の JSON だけを返してください。',
           },
           { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
         ],
@@ -81,9 +96,18 @@ export async function detectPerson(dataUrl: string): Promise<boolean> {
     ],
   });
 
-  const answer = response.choices[0]?.message?.content?.trim().toLowerCase() ?? '';
-  if (answer.startsWith('n')) return false;
-  return true;
+  const text = response.choices[0]?.message?.content?.trim() ?? '';
+  try {
+    // ```json ... ``` で返ってくることがあるので中身だけ取る
+    const json = text.match(/\{[\s\S]*\}/)?.[0] ?? text;
+    const parsed = JSON.parse(json) as { person?: boolean; collage?: boolean };
+    return {
+      hasPerson: parsed.person !== false,
+      isCollage: parsed.collage === true,
+    };
+  } catch {
+    return { hasPerson: true, isCollage: false };
+  }
 }
 
 export interface GenerateImageOptions {

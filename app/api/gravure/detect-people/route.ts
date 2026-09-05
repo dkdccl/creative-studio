@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { detectPerson, isOpenAIConfigured } from '@/lib/openai';
+import { inspectImage, isOpenAIConfigured } from '@/lib/openai';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -11,6 +11,8 @@ const MAX_IMAGES = 50;
 export interface DetectResult {
   index: number;
   hasPerson: boolean;
+  /** 複数コマを 1 枚にまとめた絵になっていないか */
+  isCollage: boolean;
   /** 判定できなかった場合の理由 */
   error?: string;
 }
@@ -62,26 +64,26 @@ export async function POST(request: Request) {
     files.map(async (file) => {
       const base64 = Buffer.from(await file.arrayBuffer()).toString('base64');
       const mime = file.type || 'image/jpeg';
-      return detectPerson(`data:${mime};base64,${base64}`);
+      return inspectImage(`data:${mime};base64,${base64}`);
     }),
   );
 
   const results: DetectResult[] = settled.map((outcome, i) => {
     const index = Number.isFinite(indexes[i]) ? indexes[i] : i + 1;
     if (outcome.status === 'fulfilled') {
-      return { index, hasPerson: outcome.value };
+      return { index, ...outcome.value };
     }
     const message =
       outcome.reason instanceof Error ? outcome.reason.message : '判定に失敗しました';
     console.error(`❌ ${index} 枚目の判定に失敗:`, message);
     // 判定できなかったものは残す（黙って捨てないため）
-    return { index, hasPerson: true, error: message };
+    return { index, hasPerson: true, isCollage: false, error: message };
   });
 
   console.log(
     `✅ 人物判定 ${results.length} 枚を ${Date.now() - started}ms（人物なし ${
       results.filter((r) => !r.hasPerson).length
-    } 枚）`,
+    } 枚 / グリッド合成 ${results.filter((r) => r.isCollage).length} 枚）`,
   );
 
   return NextResponse.json({ results });

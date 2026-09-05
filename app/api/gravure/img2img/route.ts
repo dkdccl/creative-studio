@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 
 import {
   ACCEPTED_UPLOAD_TYPES,
+  COLLAGE_NEGATIVE,
   MAX_UPLOAD_BYTES,
   img2imgModel,
+  withSingleSubject,
 } from '@/lib/gravure';
 import {
   generateImageFromImageWithProdia,
@@ -76,8 +78,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const prompt = String(form.get('prompt') ?? '').trim();
-  if (!prompt) {
+  const rawPrompt = String(form.get('prompt') ?? '').trim();
+  // 参考画像がグリッドだと構図ごと引き継ぐので、単写真であることを明示する
+  const enforce = form.get('enforceSingleSubject') !== 'false';
+  const prompt = withSingleSubject(rawPrompt, enforce);
+  if (!rawPrompt) {
     return NextResponse.json(
       { error: 'プロンプトを入力してください。' },
       { status: 400 },
@@ -87,7 +92,9 @@ export async function POST(request: Request) {
   // 対応していない項目を送るとモデル側で弾かれるので、ここで落とす
   const model = img2imgModel(String(form.get('jobType') ?? ''));
   const negativePrompt = model.supportsNegativePrompt
-    ? String(form.get('negativePrompt') ?? '')
+    ? [String(form.get('negativePrompt') ?? ''), enforce ? COLLAGE_NEGATIVE : '']
+        .filter(Boolean)
+        .join(', ')
     : undefined;
   const strength = model.supportsStrength
     ? optionalNumber(form.get('strength'))

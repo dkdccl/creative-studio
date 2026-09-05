@@ -71,20 +71,27 @@ export function StepBatch({
 
       const results: DetectResult[] = data.results ?? [];
       const withoutPerson = results.filter((result) => !result.hasPerson);
+      const collages = results.filter((result) => result.isCollage);
+      const drop = results.filter((r) => !r.hasPerson || r.isCollage);
       const undecided = results.filter((result) => result.error);
 
       // すでに除外済みのものを二重に切り替えないよう、状態を見てから押す
-      withoutPerson.forEach((result) => {
+      drop.forEach((result) => {
         const shot = shots.find((item) => item.index === result.index);
         if (shot && !excludedIds.includes(shot.id)) toggleExcluded(shot.id);
       });
 
+      const reasons = [
+        withoutPerson.length > 0 ? `人物なし ${withoutPerson.length} 枚` : '',
+        collages.length > 0 ? `グリッド合成 ${collages.length} 枚` : '',
+      ].filter(Boolean);
+
       setDetectNote(
-        withoutPerson.length === 0
-          ? `${results.length} 枚すべてに人物が写っていました。除外はありません。`
-          : `人物が写っていない ${withoutPerson.length} 枚を除外しました。` +
+        drop.length === 0
+          ? `${results.length} 枚とも 1 枚 1 人の単独写真でした。除外はありません。`
+          : `${reasons.join('・')}を除外しました（計 ${drop.length} 枚）。` +
               (undecided.length > 0
-                ? `（${undecided.length} 枚は判定できなかったため残しています）`
+                ? `${undecided.length} 枚は判定できなかったため残しています。`
                 : ''),
       );
     } catch (err) {
@@ -187,7 +194,7 @@ export function StepBatch({
                   onClick={onAutoExclude}
                   disabled={isDetecting || shots.length === 0}
                 >
-                  {isDetecting ? '判定中…' : '🔍 人物なしを自動判定して除外'}
+                  {isDetecting ? '判定中…' : '🔍 人物なし・グリッド合成を自動判定して除外'}
                 </SecondaryButton>
                 <span className="text-[11px] text-violet-200/40">
                   OpenAI の画像判定を使います（1 枚につき 1 回ぶんの料金）
