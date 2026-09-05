@@ -21,14 +21,34 @@ export function downloadBlob(fileName: string, blob: Blob): void {
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = fileName;
+  anchor.rel = 'noopener';
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+
+  // click() の直後に revoke すると、ブラウザが保存を始める前に
+  // URL が無効になってダウンロードが黙って失敗することがある。
+  // 破棄はイベントループを一巡させてから行う。
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** ファイル名に入れる日時。YYYYMMDD-HHMM */
+export function timestamp(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return (
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
+    `-${pad(date.getHours())}${pad(date.getMinutes())}`
+  );
 }
 
 function baseName(metadata: GravureMetadata): string {
   return toSafeFileName(metadata.title, 'gravure');
+}
+
+/** 1 枚だけ JPEG で落とす。ファイル名は gravure-{日時}[-{通し番号}].jpg */
+export function downloadShot(shot: GravureShot, total = 0): void {
+  const suffix = total === 1 ? '' : `-${String(shot.index).padStart(3, '0')}`;
+  downloadBlob(`gravure-${timestamp()}${suffix}.jpg`, shot.blob);
 }
 
 /** メタデータだけを JSON で落とす */
@@ -75,7 +95,7 @@ export async function downloadZip(
   shots: GravureShot[],
 ): Promise<void> {
   const blob = await buildZip(metadata, shots);
-  downloadBlob(`${baseName(metadata)}.zip`, blob);
+  downloadBlob(`${baseName(metadata)}-${timestamp()}.zip`, blob);
 }
 
 /** 全ページを 1 つの PDF にして落とす。実効 DPI を呼び出し側に返す */
@@ -85,6 +105,6 @@ export async function downloadPdf(
   options: PdfOptions,
 ): Promise<PdfResult> {
   const result = await buildPdf(shots, options);
-  downloadBlob(`${baseName(metadata)}.pdf`, result.blob);
+  downloadBlob(`gravure-kdp-${timestamp()}.pdf`, result.blob);
   return result;
 }

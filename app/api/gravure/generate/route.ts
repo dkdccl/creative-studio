@@ -42,7 +42,10 @@ function optionalNumber(value: unknown): number | undefined {
 export async function POST(request: Request) {
   if (!isProdiaConfigured) {
     return NextResponse.json(
-      { error: 'PRODIA_TOKEN が未設定です。.env.local に設定してください。' },
+      {
+        error:
+          'PRODIA_TOKEN が未設定です。ローカルは .env.local、本番は Vercel の環境変数に設定してください。',
+      },
       { status: 503 },
     );
   }
