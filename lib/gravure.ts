@@ -70,6 +70,9 @@ export interface GravureShot {
   /** 表示用の object URL。使い終わったら revoke する */
   objectUrl: string;
   blob: Blob;
+  /** 実際に返ってきた画素数。PDF の DPI 計算に使う */
+  width: number;
+  height: number;
   prompt: string;
   jobType: string;
   seed?: number;

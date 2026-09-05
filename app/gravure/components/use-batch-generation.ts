@@ -11,6 +11,22 @@ import {
 
 export type BatchStatus = 'idle' | 'running' | 'done' | 'cancelled';
 
+/** 画素数を測る。読めなければ依頼した寸法で代用する */
+async function measure(
+  blob: Blob,
+  fallbackWidth: number,
+  fallbackHeight: number,
+): Promise<{ width: number; height: number }> {
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const size = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return size;
+  } catch {
+    return { width: fallbackWidth, height: fallbackHeight };
+  }
+}
+
 /**
  * 一括生成の進行を持つ。
  *
@@ -102,6 +118,9 @@ export function useBatchGeneration() {
           const objectUrl = URL.createObjectURL(blob);
           urlsRef.current.push(objectUrl);
 
+          // 依頼した寸法と返ってきた寸法がずれることがあるので実測する
+          const size = await measure(blob, request.width, request.height);
+
           setShots((prev) => [
             ...prev,
             {
@@ -109,6 +128,8 @@ export function useBatchGeneration() {
               index,
               objectUrl,
               blob,
+              width: size.width,
+              height: size.height,
               prompt: data.prompt,
               jobType: data.jobType,
               seed: data.seed,

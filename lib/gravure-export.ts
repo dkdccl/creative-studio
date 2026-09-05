@@ -1,5 +1,3 @@
-import JSZip from 'jszip';
-
 import {
   buildKdpMetadata,
   imageFileName,
@@ -7,6 +5,7 @@ import {
   type GravureMetadata,
   type GravureShot,
 } from './gravure';
+import { buildPdf, type PdfOptions, type PdfResult } from './gravure-pdf';
 import { toSafeFileName } from './novel-export';
 
 /**
@@ -51,6 +50,8 @@ export async function buildZip(
   metadata: GravureMetadata,
   shots: GravureShot[],
 ): Promise<Blob> {
+  // JSZip も書き出し時だけあればよい
+  const { default: JSZip } = await import('jszip');
   const zip = new JSZip();
 
   const images = zip.folder('images');
@@ -75,4 +76,15 @@ export async function downloadZip(
 ): Promise<void> {
   const blob = await buildZip(metadata, shots);
   downloadBlob(`${baseName(metadata)}.zip`, blob);
+}
+
+/** 全ページを 1 つの PDF にして落とす。実効 DPI を呼び出し側に返す */
+export async function downloadPdf(
+  metadata: GravureMetadata,
+  shots: GravureShot[],
+  options: PdfOptions,
+): Promise<PdfResult> {
+  const result = await buildPdf(shots, options);
+  downloadBlob(`${baseName(metadata)}.pdf`, result.blob);
+  return result;
 }
