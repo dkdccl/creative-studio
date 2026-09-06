@@ -132,7 +132,11 @@ export default function GravureStudio() {
         />
       )}
 
-      {step === 4 && <StepExport metadata={metadata} shots={batch.includedShots} />}
+      {step === 4 && <StepExport
+          metadata={metadata}
+          shots={batch.includedShots}
+          volumeNumber={batch.savedVolume}
+        />}
     </div>
   );
 }

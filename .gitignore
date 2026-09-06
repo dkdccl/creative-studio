@@ -80,3 +80,6 @@ supabase/.temp/
 
 # Vercel
 .vercel
+
+# Electron のビルド成果物
+dist-electron/

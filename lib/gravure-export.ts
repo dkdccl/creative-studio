@@ -7,6 +7,7 @@ import {
 } from './gravure';
 import { buildPdf, type PdfOptions, type PdfResult } from './gravure-pdf';
 import { toSafeFileName } from './novel-export';
+import { saveGravurePdf } from './filesystem';
 
 /**
  * グラビアの成果物をブラウザ内で書き出す。
@@ -119,9 +120,22 @@ export async function downloadPdf(
   metadata: GravureMetadata,
   shots: GravureShot[],
   options: PdfOptions,
-): Promise<PdfResult> {
+  /** デスクトップ版のとき、ローカルにも置く巻番号 */
+  volumeNumber?: number | null,
+): Promise<PdfResult & { savedPath?: string }> {
   const result = await buildPdf(shots, options);
   downloadBlob(`gravure-kdp-${timestamp()}.pdf`, result.blob);
+
+  // 既存のダウンロードはそのまま。デスクトップ版ではフォルダにも残す
+  if (volumeNumber) {
+    try {
+      const savedPath = await saveGravurePdf(volumeNumber, result.blob);
+      if (savedPath) return { ...result, savedPath };
+    } catch (error) {
+      console.error('PDF のローカル保存に失敗しました', error);
+    }
+  }
+
   return result;
 }
 

@@ -17,15 +17,19 @@ import { Card, ErrorNote, PrimaryButton, SecondaryButton, StepShell } from './ui
 export function StepExport({
   metadata,
   shots,
+  volumeNumber,
 }: {
   metadata: GravureMetadata;
   shots: GravureShot[];
+  /** デスクトップ版のとき、ローカルにも置く巻番号 */
+  volumeNumber: number | null;
 }) {
   const [busy, setBusy] = useState<'zip' | 'pdf' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pageMode, setPageMode] = useState<PdfPageMode>(DEFAULT_PDF_OPTIONS.pageMode);
   const [upscale, setUpscale] = useState(DEFAULT_PDF_OPTIONS.upscaleToTargetDpi);
   const [lastPdfDpi, setLastPdfDpi] = useState<number | null>(null);
+  const [savedPath, setSavedPath] = useState<string | null>(null);
 
   const preview = buildKdpMetadata(metadata, shots);
 
@@ -44,11 +48,14 @@ export function StepExport({
       if (kind === 'zip') {
         await downloadZip(metadata, shots);
       } else {
-        const result = await downloadPdf(metadata, shots, {
-          pageMode,
-          upscaleToTargetDpi: upscale,
-        });
+        const result = await downloadPdf(
+          metadata,
+          shots,
+          { pageMode, upscaleToTargetDpi: upscale },
+          volumeNumber,
+        );
         setLastPdfDpi(result.minDpi);
+        setSavedPath(result.savedPath ?? null);
       }
     } catch (err) {
       const label = kind === 'zip' ? 'ZIP' : 'PDF';
@@ -198,6 +205,12 @@ export function StepExport({
           <p className="mt-2 text-xs text-violet-200/60">
             書き出した PDF の実効解像度: <strong>{lastPdfDpi} DPI</strong>（{shots.length}{' '}
             ページ）
+          </p>
+        )}
+        {/* デスクトップ版のときだけ、置き場所も伝える */}
+        {savedPath && (
+          <p className="mt-1 break-all text-xs text-emerald-300/80">
+            📁 {savedPath} にも保存しました
           </p>
         )}
       </div>

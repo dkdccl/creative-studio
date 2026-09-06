@@ -12,6 +12,7 @@ import {
   type PromptSettings,
 } from '@/lib/gravure';
 import { isStubMode, stubGenerate } from '@/lib/gravure-stub';
+import { isDesktop, nextVolumeNumber, saveGravureImage } from '@/lib/filesystem';
 
 export type BatchStatus = 'idle' | 'running' | 'done' | 'cancelled';
 
@@ -130,6 +131,8 @@ export function useBatchGeneration() {
   const [sessionTotal, setSessionTotal] = useState(0);
   // 「このセッションで停止」を押されたか
   const [stopRequested, setStopRequested] = useState(false);
+  // デスクトップ版でローカルに書き出した巻番号（ブラウザでは null）
+  const [savedVolume, setSavedVolume] = useState<number | null>(null);
   const stopAfterSessionRef = useRef(false);
 
   // 書き出しから外した画像の id。人物が写らなかったコマなどを落とすため
@@ -162,6 +165,7 @@ export function useBatchGeneration() {
     setSession(0);
     setSessionTotal(0);
     setStopRequested(false);
+    setSavedVolume(null);
     stopAfterSessionRef.current = false;
     setStatus('idle');
   }, [releaseUrls]);
@@ -193,7 +197,13 @@ export function useBatchGeneration() {
       setSessionTotal(sessions);
       setStopRequested(false);
       stopAfterSessionRef.current = false;
+      setSavedVolume(null);
       setStatus('running');
+
+      // デスクトップ版のときだけ、今回ぶんの巻番号を先に決めておく。
+      // ブラウザでは null のままで、書き出しは行わない
+      const volume = isDesktop() ? await nextVolumeNumber('gravure') : null;
+      if (volume) setSavedVolume(volume);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -282,6 +292,17 @@ export function useBatchGeneration() {
                 },
               ]);
               consecutiveFailures = 0;
+
+              // 既存の表示・書き出しはそのままに、ローカルフォルダへも残す。
+              // 失敗しても生成は続ける（保存できないだけで絵は手元にある）
+              if (volume) {
+                try {
+                  await saveGravureImage(volume, ordinal, blob);
+                } catch (saveError) {
+                  setFatalError(null);
+                  console.error('ローカル保存に失敗しました', saveError);
+                }
+              }
             } catch (error) {
               if (controller.signal.aborted) break;
 
@@ -366,6 +387,7 @@ export function useBatchGeneration() {
     session,
     sessionTotal,
     stopRequested,
+    savedVolume,
     start,
     cancel,
     stopAfterSession,

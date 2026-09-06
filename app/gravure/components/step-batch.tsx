@@ -12,6 +12,7 @@ import type { DetectResult } from '@/app/api/gravure/detect-people/route';
 
 import { downloadPromptCsv, downloadShot } from '@/lib/gravure-export';
 import { isStubMode } from '@/lib/gravure-stub';
+import { isDesktop, openWorkspaceFolder } from '@/lib/filesystem';
 
 import { DeleteConfirmModal } from './delete-confirm-modal';
 import {
@@ -58,6 +59,7 @@ export function StepBatch({
     session,
     sessionTotal,
     stopRequested,
+    savedVolume,
     isRunning,
   } = batch;
 
@@ -312,6 +314,27 @@ export function StepBatch({
           </div>
 
           {fatalError && <ErrorNote>{fatalError}</ErrorNote>}
+
+          {/* デスクトップ版では生成と同時にフォルダへ残るので、その旨を出す */}
+          {isDesktop() && savedVolume !== null && (
+            <p className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/40 bg-emerald-950/25 px-4 py-3 text-sm text-emerald-200">
+              <span>
+                📁 生成した画像を{' '}
+                <code className="text-emerald-100">
+                  creative-studio-workspace/gravure/vol-
+                  {String(savedVolume).padStart(2, '0')}/images/
+                </code>{' '}
+                にも保存しています。
+              </span>
+              <SecondaryButton
+                type="button"
+                className="px-3 py-1 text-xs"
+                onClick={() => void openWorkspaceFolder()}
+              >
+                フォルダを開く
+              </SecondaryButton>
+            </p>
+          )}
 
           {/* 最後の 1 枚を消すと一覧ごと消えるので、結果は一覧の外に出しておく */}
           {deleteNote && (

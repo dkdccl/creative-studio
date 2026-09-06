@@ -10,7 +10,7 @@ import {
   loadNovelProject,
   saveNovelProject,
 } from '@/lib/novel-storage';
-import { buildEpisodeRecord } from '@/lib/series';
+import { buildEpisodeRecord, extractSummary } from '@/lib/series';
 import {
   createSeries,
   loadSeriesStore,
@@ -28,6 +28,9 @@ import {
   type SerialSettings,
 } from '@/lib/types';
 import { StepCharacters } from './components/step-characters';
+import { buildProjectMarkdown } from '@/lib/novel-export';
+import { isDesktop, saveNovelStory } from '@/lib/filesystem';
+
 import { StepEditor } from './components/step-editor';
 import { StepExport } from './components/step-export';
 import { StepPlot } from './components/step-plot';
@@ -136,6 +139,20 @@ export function NovelStudio() {
     if (ok) {
       // 次の保存で同じシリーズを更新できるようにしておく
       updateSerial({ mode: 'continue', seriesId: series.id });
+
+      // 既存の localStorage 保存はそのまま。デスクトップ版では
+      // novels/シリーズ名/vol-XX/ にも本文とあらすじを書き出す
+      if (isDesktop()) {
+        void saveNovelStory(
+          series.name,
+          episode,
+          project.theme.title.trim() || `第${episode}話`,
+          buildProjectMarkdown(project),
+          extractSummary(project),
+        ).catch((error) => {
+          console.error('ローカル保存に失敗しました', error);
+        });
+      }
     }
 
     return {
