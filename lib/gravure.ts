@@ -29,20 +29,20 @@ export function clampCount(value: number, max: number): number {
 }
 
 /**
- * セッションごとに differing テーマを足したいときの候補。
- * プロンプトの末尾に付けるだけなので、利用側で自由に足し引きできる。
+ * 回ごとにテーマを変えたいときの候補。衣装やスタイルで振り分ける。
+ * プロンプトの末尾に付けるだけなので、画面から自由に書き換えられる。
  */
 export const SESSION_THEME_PRESETS = [
-  'on a sunny beach',
-  'in a modern office',
-  'in a city street at night',
-  'in a quiet cafe',
-  'in a hotel room',
-  'in a park in spring',
-  'by a swimming pool',
-  'in a library',
-  'on a rooftop at sunset',
-  'in a train station',
+  'beach theme',
+  'office outfit',
+  'gym wear',
+  'casual style',
+  'formal dress',
+  'bikini style',
+  'swimsuit',
+  'lingerie style',
+  'cosplay',
+  'artist rendering',
 ] as const;
 
 /**
