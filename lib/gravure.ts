@@ -166,6 +166,13 @@ export interface GravureShot {
   seed?: number;
   /** どの参考画像から作ったか（1 始まり）。txt2img では未設定 */
   referenceIndex?: number;
+  /**
+   * Supabase に保存済みなら gravure_images の行 id。
+   * 保存処理はまだ入っていないので現状は常に未設定で、
+   * 削除は「一覧から外す」だけになる。値が入っていれば
+   * /api/gravure/delete-image で Storage とテーブルからも消す。
+   */
+  imageId?: string;
 }
 
 /** 失敗した 1 枚 */

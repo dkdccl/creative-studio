@@ -11,7 +11,15 @@ import type { DetectResult } from '@/app/api/gravure/detect-people/route';
 
 import { downloadShot } from '@/lib/gravure-export';
 
-import { Card, ErrorNote, PrimaryButton, SecondaryButton, StepShell } from './ui';
+import { DeleteConfirmModal } from './delete-confirm-modal';
+import {
+  Card,
+  DangerButton,
+  ErrorNote,
+  PrimaryButton,
+  SecondaryButton,
+  StepShell,
+} from './ui';
 import type { useBatchGeneration } from './use-batch-generation';
 
 type Batch = ReturnType<typeof useBatchGeneration>;
@@ -33,6 +41,7 @@ export function StepBatch({
     shots,
     excludedIds,
     toggleExcluded,
+    removeShot,
     failures,
     status,
     completed,
@@ -52,6 +61,64 @@ export function StepBatch({
   const [isDetecting, setIsDetecting] = useState(false);
   const [detectNote, setDetectNote] = useState<string | null>(null);
   const [detectError, setDetectError] = useState<string | null>(null);
+
+  // 削除の確認待ちにしている画像。null なら確認ダイアログは出さない
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteNote, setDeleteNote] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const pendingDeleteShot = shots.find((shot) => shot.id === pendingDeleteId);
+
+  /** 生成し直すと前回の判定結果や削除の知らせは古くなるので、一緒に消す */
+  function startBatch() {
+    setDetectNote(null);
+    setDetectError(null);
+    setDeleteNote(null);
+    setDeleteError(null);
+    batch.start(count, settings, references);
+  }
+
+  /**
+   * 確認ダイアログで「削除」を押されたときの後始末。
+   *
+   * Supabase に保存済みの画像だけ Storage とテーブルからも消す。
+   * 生成しただけの画像はブラウザの中にしか無いので、一覧から外して終わり。
+   */
+  async function onConfirmDelete() {
+    if (!pendingDeleteShot) {
+      setPendingDeleteId(null);
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteNote(null);
+    setDeleteError(null);
+
+    try {
+      if (pendingDeleteShot.imageId) {
+        const response = await fetch('/api/gravure/delete-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageId: pendingDeleteShot.imageId }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error ?? `HTTP ${response.status}`);
+      }
+
+      removeShot(pendingDeleteShot.id);
+      setDeleteNote(`画像 ${pendingDeleteShot.index} を削除しました。`);
+      setPendingDeleteId(null);
+    } catch (err) {
+      // 消せなかったときはカードを残す。もう一度押せば再試行になる
+      setDeleteError(
+        err instanceof Error ? `削除に失敗しました: ${err.message}` : '削除に失敗しました。',
+      );
+      setPendingDeleteId(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   /** 人物が写っていないコマを OpenAI に見てもらって外す */
   async function onAutoExclude() {
@@ -140,7 +207,7 @@ export function StepBatch({
               </div>
             </dl>
           </Card>
-          <PrimaryButton type="button" onClick={() => batch.start(count, settings, references)}>
+          <PrimaryButton type="button" onClick={startBatch}>
             ⚡ 一括生成開始
           </PrimaryButton>
           <p className="text-xs text-violet-200/40">
@@ -179,7 +246,7 @@ export function StepBatch({
               </SecondaryButton>
             ) : (
               <>
-                <SecondaryButton type="button" onClick={() => batch.start(count, settings, references)}>
+                <SecondaryButton type="button" onClick={startBatch}>
                   ↻ もう一度生成
                 </SecondaryButton>
                 <PrimaryButton
@@ -194,6 +261,14 @@ export function StepBatch({
           </div>
 
           {fatalError && <ErrorNote>{fatalError}</ErrorNote>}
+
+          {/* 最後の 1 枚を消すと一覧ごと消えるので、結果は一覧の外に出しておく */}
+          {deleteNote && (
+            <p className="text-xs text-violet-200/60" role="status">
+              {deleteNote}
+            </p>
+          )}
+          {deleteError && <ErrorNote>{deleteError}</ErrorNote>}
 
           {/* 1 枚ずつのカード。隙間なく並べると 1 枚の合成画像に見えてしまうので離す */}
           {shots.length > 0 && (
@@ -220,6 +295,7 @@ export function StepBatch({
               <p className="text-xs text-violet-200/50">
                 {shots.length} 枚とも別々のファイルです。書き出しに含めない画像は
                 「除外」を押してください（{excludedIds.length} 枚を除外中）。
+                「削除」は一覧から消してしまうので、元には戻せません。
               </p>
               <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {shots.map((shot) => {
@@ -268,6 +344,14 @@ export function StepBatch({
                         >
                           {excluded ? '↩ 戻す' : '✕ 除外'}
                         </SecondaryButton>
+                        <DangerButton
+                          type="button"
+                          className="px-3 py-1.5 text-xs"
+                          onClick={() => setPendingDeleteId(shot.id)}
+                          disabled={isDeleting}
+                        >
+                          🗑️ 削除
+                        </DangerButton>
                       </div>
                     </li>
                   );
@@ -294,6 +378,22 @@ export function StepBatch({
           )}
         </div>
       )}
+
+      <DeleteConfirmModal
+        open={pendingDeleteShot !== undefined}
+        description={
+          pendingDeleteShot
+            ? `画像 ${pendingDeleteShot.index}${
+                pendingDeleteShot.referenceIndex !== undefined
+                  ? `（参考 ${pendingDeleteShot.referenceIndex}）`
+                  : ''
+              } を削除します。`
+            : undefined
+        }
+        busy={isDeleting}
+        onConfirm={onConfirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </StepShell>
   );
 }

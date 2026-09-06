@@ -28,9 +28,24 @@ export interface EpisodeCharacter {
   description: string;
 }
 
+/** シリーズの種別。小説モードと漫画モードで一覧を分けるために持つ */
+export type SeriesType = 'novel' | 'manga';
+
+export const SERIES_TYPE_LABELS: Record<SeriesType, string> = {
+  novel: '小説',
+  manga: '漫画',
+};
+
+export function isSeriesType(value: string): value is SeriesType {
+  return value === 'novel' || value === 'manga';
+}
+
 export interface SeriesRecord {
   id: string;
   name: string;
+  /** 種別を足す前に作られたものは小説として扱う */
+  type: SeriesType;
+  description: string;
   createdAt: string;
   updatedAt: string;
 }

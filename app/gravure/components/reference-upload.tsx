@@ -8,8 +8,29 @@ import {
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_PIXELS,
 } from '@/lib/gravure';
+import {
+  canSaveReferences,
+  deleteSavedReference,
+  downloadReference,
+  listSavedReferences,
+  saveReference,
+  type SavedReference,
+} from '@/lib/gravure-references';
 
-import { ErrorNote, SecondaryButton } from './ui';
+import { DeleteConfirmModal } from './delete-confirm-modal';
+import { DangerButton, ErrorNote, SecondaryButton } from './ui';
+
+/** 「1.2 MB」のように読める形にする */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 同じ画像を二度保存させないための目印 */
+function fileKey(file: File): string {
+  return `${file.name}-${file.size}`;
+}
 
 /**
  * Prodia の入力画像は 1920x1920 まで。
@@ -55,6 +76,8 @@ function Thumb({
   onMove,
   canMoveUp,
   canMoveDown,
+  onKeep,
+  keepState,
 }: {
   file: File;
   position: number;
@@ -62,6 +85,9 @@ function Thumb({
   onMove: (direction: -1 | 1) => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  /** 保存できないとき（未ログインなど）は undefined でボタンを出さない */
+  onKeep?: () => void;
+  keepState?: 'idle' | 'saving' | 'saved';
 }) {
   const [url, setUrl] = useState<string | null>(null);
 
@@ -114,6 +140,76 @@ function Thumb({
         >
           ↓
         </SecondaryButton>
+        {onKeep && (
+          <SecondaryButton
+            type="button"
+            className="px-2 py-1 text-xs"
+            onClick={onKeep}
+            disabled={keepState !== 'idle'}
+          >
+            {keepState === 'saved'
+              ? '⭐ 保存済み'
+              : keepState === 'saving'
+                ? '保存中…'
+                : '⭐ 残す'}
+          </SecondaryButton>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/** 保存済みの参考画像 1 枚 */
+function SavedThumb({
+  reference,
+  onUse,
+  onDelete,
+  busy,
+  canUse,
+}: {
+  reference: SavedReference;
+  onUse: () => void;
+  onDelete: () => void;
+  busy: boolean;
+  canUse: boolean;
+}) {
+  return (
+    <li className="overflow-hidden rounded-xl border border-violet-400/25 bg-black/25">
+      <div className="flex items-center justify-between gap-2 px-3 py-2">
+        <span className="truncate text-xs font-bold text-violet-100">
+          {reference.fileName || '参考画像'}
+        </span>
+        <span className="shrink-0 text-[11px] text-violet-200/40">
+          {formatBytes(reference.byteSize)}
+        </span>
+      </div>
+      {reference.signedUrl && (
+        // 署名付き URL のため next/image では最適化できない
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={reference.signedUrl}
+          alt={reference.fileName || '保存済みの参考画像'}
+          loading="lazy"
+          className="max-h-40 w-full bg-black/40 object-contain"
+        />
+      )}
+      <div className="flex flex-wrap gap-1.5 px-3 py-2">
+        <SecondaryButton
+          type="button"
+          className="px-2 py-1 text-xs"
+          onClick={onUse}
+          disabled={busy || !canUse}
+        >
+          ↓ 使う
+        </SecondaryButton>
+        <DangerButton
+          type="button"
+          className="px-2 py-1 text-xs"
+          onClick={onDelete}
+          disabled={busy}
+        >
+          🗑️ 削除
+        </DangerButton>
       </div>
     </li>
   );
@@ -129,6 +225,98 @@ export function ReferenceUpload({
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // --- 取っておく参考画像 ---------------------------------------
+  // 生成画像は保存しないので、Supabase の容量を使うのはここだけ
+  const [canKeep, setCanKeep] = useState(false);
+  const [saved, setSaved] = useState<SavedReference[]>([]);
+  const [savedKeys, setSavedKeys] = useState<string[]>([]);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [storeError, setStoreError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<SavedReference | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const ok = await canSaveReferences();
+        if (!alive) return;
+        setCanKeep(ok);
+        if (!ok) return;
+
+        const list = await listSavedReferences();
+        if (alive) setSaved(list);
+      } catch (err) {
+        if (alive) {
+          setStoreError(
+            err instanceof Error ? err.message : '保存済みの参考画像を読めませんでした。',
+          );
+        }
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const savedBytes = saved.reduce((sum, reference) => sum + reference.byteSize, 0);
+
+  async function keep(file: File) {
+    const key = fileKey(file);
+    setBusyKey(key);
+    setStoreError(null);
+    try {
+      const stored = await saveReference(file);
+      if (!stored) {
+        setCanKeep(false);
+        return;
+      }
+      setSaved((prev) => [stored, ...prev]);
+      setSavedKeys((prev) => [...prev, key]);
+      // 一覧に出すサムネイル用の署名付き URL を貰い直す
+      setSaved(await listSavedReferences());
+    } catch (err) {
+      setStoreError(err instanceof Error ? err.message : '保存に失敗しました。');
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function use(reference: SavedReference) {
+    if (value.length >= MAX_REFERENCES) {
+      setStoreError(`参考画像は ${MAX_REFERENCES} 枚までです。`);
+      return;
+    }
+    setBusyKey(reference.id);
+    setStoreError(null);
+    try {
+      const file = await downloadReference(reference);
+      onChange([...value, file]);
+      setSavedKeys((prev) => [...prev, fileKey(file)]);
+    } catch (err) {
+      setStoreError(err instanceof Error ? err.message : '読み込みに失敗しました。');
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setBusyKey(pendingDelete.id);
+    setStoreError(null);
+    try {
+      await deleteSavedReference(pendingDelete);
+      setSaved((prev) => prev.filter((item) => item.id !== pendingDelete.id));
+      setPendingDelete(null);
+    } catch (err) {
+      setStoreError(err instanceof Error ? err.message : '削除に失敗しました。');
+      setPendingDelete(null);
+    } finally {
+      setBusyKey(null);
+    }
+  }
 
   async function accept(incoming: FileList | null) {
     setError(null);
@@ -244,10 +432,71 @@ export function ReferenceUpload({
               canMoveDown={i < value.length - 1}
               onMove={(direction) => move(i, direction)}
               onRemove={() => onChange(value.filter((_, index) => index !== i))}
+              onKeep={canKeep ? () => void keep(file) : undefined}
+              keepState={
+                savedKeys.includes(fileKey(file))
+                  ? 'saved'
+                  : busyKey === fileKey(file)
+                    ? 'saving'
+                    : 'idle'
+              }
             />
           ))}
         </ul>
       )}
+
+      {storeError && (
+        <div className="mt-3">
+          <ErrorNote>{storeError}</ErrorNote>
+        </div>
+      )}
+
+      {canKeep && (
+        <section className="mt-6">
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-sm font-bold text-violet-50">
+              ⭐ 取っておいた参考画像（{saved.length} 枚）
+            </span>
+            <span className="text-[11px] text-violet-200/40">
+              使用中の容量 {formatBytes(savedBytes)}
+            </span>
+          </div>
+
+          {saved.length === 0 ? (
+            <p className="text-xs text-violet-200/50">
+              まだありません。良かった参考画像の「⭐ 残す」を押すと、
+              次回以降ここから選び直せます。生成した画像は保存されないので、
+              容量を使うのはここに残したぶんだけです。
+            </p>
+          ) : (
+            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {saved.map((reference) => (
+                <SavedThumb
+                  key={reference.id}
+                  reference={reference}
+                  busy={busyKey === reference.id}
+                  canUse={value.length < MAX_REFERENCES}
+                  onUse={() => void use(reference)}
+                  onDelete={() => setPendingDelete(reference)}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      <DeleteConfirmModal
+        open={pendingDelete !== null}
+        title="この参考画像を削除してもよろしいですか？"
+        description={
+          pendingDelete
+            ? `${pendingDelete.fileName || '参考画像'}（${formatBytes(pendingDelete.byteSize)}）を Supabase から削除します。`
+            : undefined
+        }
+        busy={busyKey !== null && pendingDelete !== null}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
