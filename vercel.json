@@ -3,5 +3,10 @@
   "framework": "nextjs",
   "buildCommand": "next build",
   "installCommand": "npm install",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "build": {
+    "env": {
+      "ELECTRON_SKIP_BINARY_DOWNLOAD": "1"
+    }
+  }
 }
