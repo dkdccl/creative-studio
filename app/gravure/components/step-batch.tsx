@@ -4,12 +4,14 @@ import { useState } from 'react';
 
 import {
   SECONDS_PER_IMAGE,
+  formatDuration,
   formatRemaining,
   type PromptSettings,
 } from '@/lib/gravure';
 import type { DetectResult } from '@/app/api/gravure/detect-people/route';
 
-import { downloadShot } from '@/lib/gravure-export';
+import { downloadPromptCsv, downloadShot } from '@/lib/gravure-export';
+import { isStubMode } from '@/lib/gravure-stub';
 
 import { DeleteConfirmModal } from './delete-confirm-modal';
 import {
@@ -27,12 +29,18 @@ type Batch = ReturnType<typeof useBatchGeneration>;
 export function StepBatch({
   batch,
   count,
+  sessions,
+  themes,
+  sessionPrompts,
   settings,
   references,
   onNext,
 }: {
   batch: Batch;
   count: number;
+  sessions: number;
+  themes: string[];
+  sessionPrompts: string[];
   settings: PromptSettings;
   references: File[];
   onNext: () => void;
@@ -47,13 +55,17 @@ export function StepBatch({
     completed,
     total,
     fatalError,
+    session,
+    sessionTotal,
+    stopRequested,
     isRunning,
   } = batch;
 
-  const planned =
+  const perSession =
     settings.mode === 'img2img' && references.length > 0
       ? count * references.length
       : count;
+  const planned = perSession * sessions;
   const denominator = total || planned;
   const percent = denominator === 0 ? 0 : (completed / denominator) * 100;
   const remainingSeconds = Math.max(0, denominator - completed) * SECONDS_PER_IMAGE;
@@ -76,7 +88,7 @@ export function StepBatch({
     setDetectError(null);
     setDeleteNote(null);
     setDeleteError(null);
-    batch.start(count, settings, references);
+    batch.start({ count, sessions, settings, references, themes, sessionPrompts });
   }
 
   /**
@@ -178,12 +190,20 @@ export function StepBatch({
     <StepShell
       step={2}
       title="一括生成"
-      description={
-        settings.mode === 'img2img' && references.length > 1
-          ? `参考画像 ${references.length} 枚 × ${count} 枚 = 合計 ${planned} 枚を順番に生成します。途中でキャンセルできます。`
-          : `設定した内容で ${planned} 枚を順番に生成します。途中でキャンセルできます。`
-      }
+      description={`${count} 枚 × ${sessions} 回${
+        settings.mode === 'img2img' && references.length > 0
+          ? ` × 参考 ${references.length} 枚`
+          : ''
+      } = 合計 ${planned} 枚を順番に生成します。途中で止められます。`}
     >
+      {isStubMode && (
+        <p className="mb-4 rounded-xl border border-amber-500/50 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
+          🧪 スタブモードです（NEXT_PUBLIC_USE_STUB=true）。Prodia は呼ばれず、
+          プロンプトと種をコンソールに出すだけで、実際の画像は作られません。
+          本番で生成するには .env.local を false にしてサーバーを再起動してください。
+        </p>
+      )}
+
       {status === 'idle' ? (
         <div className="flex flex-col items-start gap-4">
           <Card className="w-full">
@@ -191,8 +211,21 @@ export function StepBatch({
               <div className="flex gap-2">
                 <dt className="text-violet-200/50">枚数</dt>
                 <dd className="font-bold text-white">
-                  {planned} 枚
-                  {references.length > 1 && ` (${references.length} 枚 × ${count})`}
+                  {planned} 枚（{count} 枚 × {sessions} 回
+                  {references.length > 0 && settings.mode === 'img2img'
+                    ? ` × 参考 ${references.length} 枚`
+                    : ''}
+                  ）
+                </dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="text-violet-200/50">回ごと</dt>
+                <dd className="font-bold text-white">
+                  {sessionPrompts.length > 0
+                    ? `自動生成 ${sessionPrompts.length} 個`
+                    : themes.length > 0
+                      ? `テーマ ${themes.length} 個を回す`
+                      : '毎回同じ'}
                 </dd>
               </div>
               <div className="flex gap-2">
@@ -203,15 +236,17 @@ export function StepBatch({
               </div>
               <div className="flex gap-2 sm:col-span-2">
                 <dt className="shrink-0 text-violet-200/50">プロンプト</dt>
-                <dd className="truncate text-violet-50">{settings.prompt}</dd>
+                <dd className="truncate text-violet-50">
+                  {sessionPrompts.length > 0 ? sessionPrompts[0] : settings.prompt}
+                </dd>
               </div>
             </dl>
           </Card>
           <PrimaryButton type="button" onClick={startBatch}>
-            ⚡ 一括生成開始
+            ⚡ 自動生成を開始
           </PrimaryButton>
           <p className="text-xs text-violet-200/40">
-            所要時間の目安 {formatRemaining(planned * SECONDS_PER_IMAGE).replace('残り約 ', '約 ')}
+            所要時間の目安 約 {formatDuration(planned * SECONDS_PER_IMAGE)}
             。生成中はこのページを開いたままにしてください。
           </p>
         </div>
@@ -222,9 +257,10 @@ export function StepBatch({
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm font-bold text-white">
                 {isRunning
-                  ? `${completed}/${denominator} 生成中…`
+                  ? `${completed}/${denominator} 生成中…` +
+                    (sessionTotal > 1 ? `（${session}/${sessionTotal} 回目）` : '')
                   : status === 'cancelled'
-                    ? `キャンセルしました（${shots.length} 枚生成済み）`
+                    ? `停止しました（${shots.length} 枚生成済み）`
                     : `完了：${shots.length}/${denominator} 枚`}
               </p>
               <p className="text-xs text-violet-200/50">
@@ -241,9 +277,24 @@ export function StepBatch({
 
           <div className="flex flex-wrap gap-3">
             {isRunning ? (
-              <SecondaryButton type="button" onClick={batch.cancel}>
-                ✕ キャンセル
-              </SecondaryButton>
+              <>
+                {/* 区切りまで作り切る停止と、その場で打ち切る停止を分ける。
+                    1 回だけの生成では両者に差が無いので区切り停止は出さない */}
+                {sessionTotal > 1 && (
+                  <SecondaryButton
+                    type="button"
+                    onClick={batch.stopAfterSession}
+                    disabled={stopRequested}
+                  >
+                    {stopRequested
+                      ? `⏸️ ${session} 回目の完了後に停止します`
+                      : '⏸️ この回で停止'}
+                  </SecondaryButton>
+                )}
+                <SecondaryButton type="button" onClick={batch.cancel}>
+                  ✕ すぐに中止
+                </SecondaryButton>
+              </>
             ) : (
               <>
                 <SecondaryButton type="button" onClick={startBatch}>
@@ -285,6 +336,14 @@ export function StepBatch({
                 <span className="text-[11px] text-violet-200/40">
                   OpenAI の画像判定を使います（1 枚につき 1 回ぶんの料金）
                 </span>
+
+                <SecondaryButton
+                  type="button"
+                  className="px-3 py-1.5 text-xs"
+                  onClick={() => downloadPromptCsv(shots)}
+                >
+                  📊 プロンプトをエクスポート
+                </SecondaryButton>
               </div>
 
               {detectNote && (

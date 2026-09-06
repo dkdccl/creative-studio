@@ -45,6 +45,11 @@ export const config = {
     jobType: resolve(process.env.PRODIA_JOB_TYPE) ?? 'inference.flux-2.dev.txt2img.v1',
   },
   siteUrl: resolve(process.env.NEXT_PUBLIC_SITE_URL) ?? 'http://localhost:3000',
+  /**
+   * true にすると画像生成 API を呼ばず、から回しで通す。
+   * プロンプトと種の組み立てを料金なしで確かめるための開発用。
+   */
+  useStub: resolve(process.env.NEXT_PUBLIC_USE_STUB) === 'true',
   env: process.env.NODE_ENV,
 } as const;
 

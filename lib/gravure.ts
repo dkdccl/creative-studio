@@ -5,15 +5,76 @@
  * Prodia の呼び出しは lib/prodia.ts 側にある。
  */
 
-/** 一括生成で選べる枚数 */
-export const BATCH_SIZES = [1, 5, 10, 20, 50] as const;
-export type BatchSize = (typeof BATCH_SIZES)[number];
+/** 1 回あたりの枚数の目安ボタン。ここに無い値も手入力で指定できる */
+export const BATCH_SIZES = [1, 5, 10, 25, 50] as const;
+
+/** 生成回数（セッション数）の目安ボタン。同じく手入力もできる */
+export const SESSION_COUNTS = [1, 3, 5, 10, 50] as const;
+
+/** 手入力で受け付ける上限。1 回 50 枚 × 50 回 = 2500 枚まで */
+export const MAX_BATCH_SIZE = 50;
+export const MAX_SESSIONS = 50;
 
 /**
  * 1 枚あたりの想定所要時間（秒）。
- * 残り時間の目安表示にだけ使う。実測ではない。
+ * FLUX.2 [dev] の実測が 3.4 秒前後だったので 4 秒で見積もる。
+ * 待ち時間の目安表示にだけ使う。
  */
-export const SECONDS_PER_IMAGE = 25;
+export const SECONDS_PER_IMAGE = 4;
+
+/** 手入力を 1〜max の整数に収める。空欄や数字でないものは 1 にする */
+export function clampCount(value: number, max: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(max, Math.max(1, Math.round(value)));
+}
+
+/**
+ * セッションごとに differing テーマを足したいときの候補。
+ * プロンプトの末尾に付けるだけなので、利用側で自由に足し引きできる。
+ */
+export const SESSION_THEME_PRESETS = [
+  'on a sunny beach',
+  'in a modern office',
+  'in a city street at night',
+  'in a quiet cafe',
+  'in a hotel room',
+  'in a park in spring',
+  'by a swimming pool',
+  'in a library',
+  'on a rooftop at sunset',
+  'in a train station',
+] as const;
+
+/**
+ * セッション番号からそのセッションで足すテーマを選ぶ。
+ * テーマが空なら何も足さない（毎回同じプロンプト）。
+ */
+export function themeForSession(themes: string[], session: number): string {
+  if (themes.length === 0) return '';
+  return themes[(session - 1) % themes.length];
+}
+
+/** プロンプトの末尾にテーマを足す */
+export function withTheme(prompt: string, theme: string): string {
+  const body = prompt.trim();
+  if (!theme.trim()) return body;
+  return `${body}, ${theme.trim()}`;
+}
+
+/**
+ * 生成に使う種を決める。
+ *
+ * 開始シード値の指定があれば通し番号で 1 ずつずらす（同じ設定で
+ * もう一度回すと同じ絵が出る）。指定が無ければ毎回ランダムに選ぶ。
+ * 種を渡さないと Prodia 側で決まってしまい、あとで再現できないため
+ * こちらで決めて記録する。
+ */
+export const MAX_SEED = 2_147_483_647;
+
+export function seedFor(baseSeed: number | undefined, offset: number): number {
+  if (baseSeed === undefined) return Math.floor(Math.random() * MAX_SEED);
+  return Math.abs(Math.trunc(baseSeed) + offset) % MAX_SEED;
+}
 
 /**
  * 生成が続けて失敗したら打ち切る回数。
@@ -112,8 +173,6 @@ export const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 /** 参考画像の上限。生成回数は 枚数 × 参考画像数 になるので歯止めを入れる */
 export const MAX_REFERENCES = 10;
 
-/** img2img の枚数は 1〜5 枚（参考画像 1 枚あたり） */
-export const IMG2IMG_BATCH_SIZES = [1, 2, 3, 4, 5] as const;
 
 /** 1 回の生成に渡す設定。ステップ 1 で決めてステップ 2 で使う */
 export interface PromptSettings {
@@ -166,6 +225,10 @@ export interface GravureShot {
   seed?: number;
   /** どの参考画像から作ったか（1 始まり）。txt2img では未設定 */
   referenceIndex?: number;
+  /** 何回目の生成（セッション）で作ったか（1 始まり） */
+  session?: number;
+  /** そのセッションでプロンプトに足したテーマ。足していなければ未設定 */
+  theme?: string;
   /**
    * Supabase に保存済みなら gravure_images の行 id。
    * 保存処理はまだ入っていないので現状は常に未設定で、
@@ -180,6 +243,8 @@ export interface GravureFailure {
   index: number;
   /** どの参考画像でのぶんか（1 始まり） */
   referenceIndex?: number;
+  /** 何回目の生成でのぶんか（1 始まり） */
+  session?: number;
   message: string;
 }
 
@@ -332,11 +397,19 @@ export function buildKdpMetadata(
   };
 }
 
+/** 「3 分 20 秒」のような長さの表示。1 時間を超えたら時間から書く */
+export function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = total % 60;
+  if (hours > 0) return `${hours} 時間 ${minutes} 分`;
+  if (minutes === 0) return `${rest} 秒`;
+  return `${minutes} 分 ${String(rest).padStart(2, '0')} 秒`;
+}
+
 /** 残り時間のざっくり表示 */
 export function formatRemaining(seconds: number): string {
   if (seconds <= 0) return 'まもなく完了';
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  if (minutes === 0) return `残り約 ${rest} 秒`;
-  return `残り約 ${minutes} 分 ${String(rest).padStart(2, '0')} 秒`;
+  return `残り約 ${formatDuration(seconds)}`;
 }
