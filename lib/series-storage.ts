@@ -1,5 +1,5 @@
 import { createId } from './novel-storage';
-import type { EpisodeRecord, SeriesRecord } from './series';
+import type { EpisodeRecord, SeriesRecord, SeriesType } from './series';
 
 /**
  * 連載シリーズと各話の保存（ブラウザ）。
@@ -24,7 +24,12 @@ export function loadSeriesStore(): SeriesStore {
     if (!raw) return EMPTY;
     const parsed = JSON.parse(raw) as Partial<SeriesStore>;
     return {
-      series: parsed.series ?? [],
+      // type / description は後から足した項目なので、古い保存データにも補う
+      series: (parsed.series ?? []).map((series) => ({
+        ...series,
+        type: series.type ?? 'novel',
+        description: series.description ?? '',
+      })),
       episodes: parsed.episodes ?? [],
     };
   } catch {
@@ -43,17 +48,25 @@ export function saveSeriesStore(store: SeriesStore): boolean {
   }
 }
 
-/** シリーズを作る（同名があればそれを返す） */
-export function createSeries(name: string): SeriesRecord {
+/** シリーズを作る（同じ種別に同名があればそれを返す） */
+export function createSeries(
+  name: string,
+  type: SeriesType = 'novel',
+  description = '',
+): SeriesRecord {
   const store = loadSeriesStore();
   const trimmed = name.trim() || '無題のシリーズ';
-  const existing = store.series.find((s) => s.name === trimmed);
+  const existing = store.series.find(
+    (s) => s.name === trimmed && (s.type ?? 'novel') === type,
+  );
   if (existing) return existing;
 
   const now = new Date().toISOString();
   const series: SeriesRecord = {
     id: createId('series'),
     name: trimmed,
+    type,
+    description,
     createdAt: now,
     updatedAt: now,
   };
