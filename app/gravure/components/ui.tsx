@@ -148,6 +148,19 @@ export function SecondaryButton({
   );
 }
 
+/** 戻せない操作（削除など）用。押し間違えないよう赤で分ける */
+export function DangerButton({
+  className = '',
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...props}
+      className={`rounded-xl border-2 border-red-500/50 px-5 py-2.5 text-sm font-bold text-red-200 transition hover:border-red-400 hover:bg-red-500/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:border-white/10 disabled:text-red-200/30 disabled:hover:bg-transparent ${className}`}
+    />
+  );
+}
+
 export function Card({
   children,
   className = '',

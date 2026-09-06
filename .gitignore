@@ -75,5 +75,8 @@ Desktop.ini
 *.sqlite
 *.db
 
+# Supabase CLI（link したときに作られる。接続情報が入るのでコミットしない）
+supabase/.temp/
+
 # Vercel
 .vercel

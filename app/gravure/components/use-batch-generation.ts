@@ -224,12 +224,31 @@ export function useBatchGeneration() {
     );
   }, []);
 
+  /**
+   * 1 枚を一覧から取り除く。除外と違って戻せない。
+   * 表示に使っていた object URL もここで手放す。
+   */
+  const removeShot = useCallback(
+    (id: string) => {
+      const target = shots.find((shot) => shot.id === id);
+      if (!target) return;
+
+      URL.revokeObjectURL(target.objectUrl);
+      urlsRef.current = urlsRef.current.filter((url) => url !== target.objectUrl);
+
+      setShots((prev) => prev.filter((shot) => shot.id !== id));
+      setExcludedIds((prev) => prev.filter((item) => item !== id));
+    },
+    [shots],
+  );
+
   return {
     shots,
     /** ZIP・PDF・メタデータに載せるぶん */
     includedShots: shots.filter((shot) => !excludedIds.includes(shot.id)),
     excludedIds,
     toggleExcluded,
+    removeShot,
     failures,
     status,
     completed,
