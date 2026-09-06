@@ -370,6 +370,10 @@ export function StepBatch({
                     >
                       <div className="flex items-center justify-between px-3 py-2">
                         <span className="text-xs font-bold text-violet-100">
+                          {/* 回ごとに枚数が 1 始まりに戻るので、
+                              2 回以上あるときは何回目かも出さないと見分けが付かない */}
+                          {sessionTotal > 1 && shot.session !== undefined &&
+                            `${shot.session} 回目 / `}
                           {shot.referenceIndex !== undefined &&
                             `参考 ${shot.referenceIndex} / `}
                           画像 {shot.index}
