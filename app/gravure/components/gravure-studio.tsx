@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   CHECKLIST_ITEMS,
@@ -11,6 +11,13 @@ import {
   type PromptSettings,
 } from '@/lib/gravure';
 
+import {
+  NATURAL_POSES,
+  composeGravurePrompts,
+  type PoseMode,
+} from '@/lib/gravure-prompt';
+
+import type { PromptMode } from './generation-plan';
 import { StepBatch } from './step-batch';
 import { StepExport } from './step-export';
 import { StepMetadata } from './step-metadata';
@@ -26,6 +33,28 @@ export default function GravureStudio() {
   const [step, setStep] = useState(1);
   const [settings, setSettings] = useState<PromptSettings>(DEFAULT_PROMPT_SETTINGS);
   const [count, setCount] = useState<number>(5);
+  // 生成回数（セッション数）。枚数 × 回数ぶんを順番に作る
+  const [sessions, setSessions] = useState<number>(1);
+  // 回ごとにプロンプトへ足すテーマ。空なら毎回同じプロンプト
+  const [themes, setThemes] = useState<string[]>([]);
+  // 回ごとのプロンプトの決め方と、自動生成したぶんの中身
+  const [promptMode, setPromptMode] = useState<PromptMode>('fixed');
+  const [autoPrompts, setAutoPrompts] = useState<string[]>([]);
+  // ポーズだけは決め方を選べる。既定はいちばんばらける random
+  const [poseMode, setPoseMode] = useState<PoseMode>('random');
+  const [manualPose, setManualPose] = useState<string>(NATURAL_POSES[0]);
+
+  // 画面のプレビューと実際に使うプロンプトを同じにするため、ここで作って持つ
+  const regeneratePrompts = useCallback(
+    () => setAutoPrompts(composeGravurePrompts(sessions, { poseMode, manualPose })),
+    [sessions, poseMode, manualPose],
+  );
+
+  // 自動生成に切り替えたとき、回数やポーズの決め方を変えたときに作り直す
+  useEffect(() => {
+    if (promptMode !== 'auto') return;
+    setAutoPrompts(composeGravurePrompts(sessions, { poseMode, manualPose }));
+  }, [promptMode, sessions, poseMode, manualPose]);
   // img2img の参考画像。複数枚まとめて指定できる
   const [references, setReferences] = useState<File[]>([]);
   const [metadata, setMetadata] = useState<GravureMetadata>(EMPTY_METADATA);
@@ -62,6 +91,18 @@ export default function GravureStudio() {
           onChange={setSettings}
           count={count}
           onCountChange={setCount}
+          sessions={sessions}
+          onSessionsChange={setSessions}
+          themes={themes}
+          onThemesChange={setThemes}
+          promptMode={promptMode}
+          onPromptModeChange={setPromptMode}
+          autoPrompts={autoPrompts}
+          onRegenerate={regeneratePrompts}
+          poseMode={poseMode}
+          onPoseModeChange={setPoseMode}
+          manualPose={manualPose}
+          onManualPoseChange={setManualPose}
           references={references}
           onReferencesChange={setReferences}
           onNext={() => setStep(2)}
@@ -72,6 +113,9 @@ export default function GravureStudio() {
         <StepBatch
           batch={batch}
           count={count}
+          sessions={sessions}
+          themes={promptMode === 'themes' ? themes : []}
+          sessionPrompts={promptMode === 'auto' ? autoPrompts : []}
           settings={settings}
           references={references}
           onNext={() => setStep(3)}

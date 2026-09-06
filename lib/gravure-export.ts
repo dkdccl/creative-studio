@@ -124,3 +124,30 @@ export async function downloadPdf(
   downloadBlob(`gravure-kdp-${timestamp()}.pdf`, result.blob);
   return result;
 }
+
+/**
+ * プロンプト一覧を CSV にする。
+ *
+ * どの種でどの文言を投げたかを手元に残すためのもの。
+ * Excel が文字化けしないよう BOM を付け、改行と引用符は RFC 4180 に従う。
+ */
+export function buildPromptCsv(shots: GravureShot[]): string {
+  const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
+  const rows = shots.map((shot) =>
+    [
+      shot.session ?? 1,
+      shot.seed ?? '',
+      escape(shot.prompt ?? ''),
+    ].join(','),
+  );
+  return ['session,seed,prompt', ...rows].join('\r\n');
+}
+
+export function downloadPromptCsv(shots: GravureShot[]): void {
+  const csv = buildPromptCsv(shots);
+  downloadBlob(
+    `gravure-prompts-${timestamp()}.csv`,
+    // BOM が無いと Excel が UTF-8 と判断せず化ける
+    new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }),
+  );
+}

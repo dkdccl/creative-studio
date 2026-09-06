@@ -1,19 +1,20 @@
 'use client';
 
 import {
-  BATCH_SIZES,
-  IMG2IMG_BATCH_SIZES,
   IMG2IMG_MODELS,
   SECONDS_PER_IMAGE,
   SIZE_PRESETS,
   STYLE_OPTIONS,
-  formatRemaining,
+  formatDuration,
   img2imgModel,
   type GenerationMode,
   type Img2ImgModel,
   type PromptSettings,
 } from '@/lib/gravure';
 
+import type { PoseMode } from '@/lib/gravure-prompt';
+
+import { GenerationPlan, type PromptMode } from './generation-plan';
 import { ReferenceUpload } from './reference-upload';
 import { Field, PrimaryButton, Select, StepShell, TextArea, TextInput } from './ui';
 
@@ -27,6 +28,18 @@ export function StepPrompt({
   onChange,
   count,
   onCountChange,
+  sessions,
+  onSessionsChange,
+  themes,
+  onThemesChange,
+  promptMode,
+  onPromptModeChange,
+  autoPrompts,
+  onRegenerate,
+  poseMode,
+  onPoseModeChange,
+  manualPose,
+  onManualPoseChange,
   references,
   onReferencesChange,
   onNext,
@@ -35,6 +48,18 @@ export function StepPrompt({
   onChange: (next: PromptSettings) => void;
   count: number;
   onCountChange: (next: number) => void;
+  sessions: number;
+  onSessionsChange: (next: number) => void;
+  themes: string[];
+  onThemesChange: (themes: string[]) => void;
+  promptMode: PromptMode;
+  onPromptModeChange: (mode: PromptMode) => void;
+  autoPrompts: string[];
+  onRegenerate: () => void;
+  poseMode: PoseMode;
+  onPoseModeChange: (mode: PoseMode) => void;
+  manualPose: string;
+  onManualPoseChange: (pose: string) => void;
   references: File[];
   onReferencesChange: (files: File[]) => void;
   onNext: () => void;
@@ -44,17 +69,15 @@ export function StepPrompt({
 
   const isImg2Img = settings.mode === 'img2img';
   const model = img2imgModel(settings.img2imgModel);
-  const sizes: readonly number[] = isImg2Img ? IMG2IMG_BATCH_SIZES : BATCH_SIZES;
-  const canProceed =
-    settings.prompt.trim() !== '' && (!isImg2Img || references.length > 0);
-  // img2img は参考画像 1 枚ごとに count 枚ずつ作る
-  const totalShots =
+  // 自動生成のときは入力欄を使わないので、空でも先へ進める
+  const hasPrompt = promptMode === 'auto' || settings.prompt.trim() !== '';
+  const canProceed = hasPrompt && (!isImg2Img || references.length > 0);
+  // img2img は参考画像 1 枚ごとに count 枚ずつ作る。それを回数ぶん繰り返す
+  const perSession =
     isImg2Img && references.length > 0 ? count * references.length : count;
+  const totalShots = perSession * sessions;
 
   function switchMode(mode: GenerationMode) {
-    // 枚数の選択肢が違うので、切り替え時に範囲内へ寄せる
-    const allowed = mode === 'img2img' ? IMG2IMG_BATCH_SIZES : BATCH_SIZES;
-    if (!allowed.includes(count as never)) onCountChange(allowed[allowed.length - 1]);
     onChange({ ...settings, mode });
   }
 
@@ -165,36 +188,36 @@ export function StepPrompt({
         )}
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        <Field label="スタイル">
-          <Select
-            value={settings.stylePreset}
-            onChange={(e) => set('stylePreset', e.target.value)}
-          >
-            {STYLE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value} className="bg-violet-950">
-                {option.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field
-          label="生成枚数"
-          hint={isImg2Img ? '参考画像 1 枚あたり' : undefined}
+      <Field label="スタイル">
+        <Select
+          value={settings.stylePreset}
+          onChange={(e) => set('stylePreset', e.target.value)}
         >
-          <Select
-            value={count}
-            onChange={(e) => onCountChange(Number(e.target.value))}
-          >
-            {sizes.map((size) => (
-              <option key={size} value={size} className="bg-violet-950">
-                {size} 枚
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+          {STYLE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value} className="bg-violet-950">
+              {option.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <GenerationPlan
+        count={count}
+        onCountChange={onCountChange}
+        sessions={sessions}
+        onSessionsChange={onSessionsChange}
+        themes={themes}
+        onThemesChange={onThemesChange}
+        promptMode={promptMode}
+        onPromptModeChange={onPromptModeChange}
+        autoPrompts={autoPrompts}
+        onRegenerate={onRegenerate}
+        poseMode={poseMode}
+        onPoseModeChange={onPoseModeChange}
+        manualPose={manualPose}
+        onManualPoseChange={onManualPoseChange}
+        referenceCount={isImg2Img ? references.length : 0}
+      />
 
       {/* img2img は出力サイズを参考画像から引き継ぐので、ここでは触らない */}
       <div className={isImg2Img ? 'hidden' : undefined}>
@@ -287,12 +310,9 @@ export function StepPrompt({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-violet-200/50">
-          {isImg2Img && references.length > 0
-            ? `参考画像 ${references.length} 枚 × ${count} 枚 = 合計 ${totalShots} 枚。`
-            : `${count} 枚。`}
-          所要時間の目安は{' '}
-          {formatRemaining(totalShots * SECONDS_PER_IMAGE).replace('残り約 ', '約 ')}（
-          {totalShots} 回ぶんの API 料金がかかります）
+          合計 {totalShots} 枚・所要時間の目安は約{' '}
+          {formatDuration(totalShots * SECONDS_PER_IMAGE)}（{totalShots}{' '}
+          回ぶんの API 料金がかかります）
         </p>
         <PrimaryButton type="button" onClick={onNext} disabled={!canProceed}
         >

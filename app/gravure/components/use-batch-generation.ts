@@ -4,12 +4,34 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   MAX_CONSECUTIVE_FAILURES,
+  seedFor,
+  themeForSession,
+  withTheme,
   type GravureFailure,
   type GravureShot,
   type PromptSettings,
 } from '@/lib/gravure';
+import { isStubMode, stubGenerate } from '@/lib/gravure-stub';
 
 export type BatchStatus = 'idle' | 'running' | 'done' | 'cancelled';
+
+/** 一括生成の指示。枚数 × 回数ぶんを順番に作る */
+export interface StartOptions {
+  /** 1 回（1 セッション）あたりの枚数 */
+  count: number;
+  /** 生成回数 */
+  sessions: number;
+  settings: PromptSettings;
+  /** img2img のときの参考画像 */
+  references?: File[];
+  /** セッションごとにプロンプトへ足すテーマ。空なら毎回同じ */
+  themes?: string[];
+  /**
+   * セッションごとに丸ごと差し替えるプロンプト。
+   * 自動生成したものを画面のプレビューと揃えるため、作った側から渡す。
+   */
+  sessionPrompts?: string[];
+}
 
 /** 画素数を測る。読めなければ依頼した寸法で代用する */
 async function measure(
@@ -74,6 +96,22 @@ function buildRequest(
 }
 
 /**
+ * 送信ペイロードからプロンプトを取り出す。
+ * txt2img は JSON、img2img は FormData なので取り出し方が違う。
+ */
+function promptOf(init: RequestInit): string {
+  if (init.body instanceof FormData) return String(init.body.get('prompt') ?? '');
+  if (typeof init.body === 'string') {
+    try {
+      return JSON.parse(init.body).prompt ?? '';
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+/**
  * 一括生成の進行を持つ。
  *
  * Prodia は 1 リクエスト 1 枚なので、枚数ぶん順番に叩く。
@@ -87,6 +125,12 @@ export function useBatchGeneration() {
   const [completed, setCompleted] = useState(0);
   const [total, setTotal] = useState(0);
   const [fatalError, setFatalError] = useState<string | null>(null);
+  // 何回目のセッションを走っているか（1 始まり）
+  const [session, setSession] = useState(0);
+  const [sessionTotal, setSessionTotal] = useState(0);
+  // 「このセッションで停止」を押されたか
+  const [stopRequested, setStopRequested] = useState(false);
+  const stopAfterSessionRef = useRef(false);
 
   // 書き出しから外した画像の id。人物が写らなかったコマなどを落とすため
   const [excludedIds, setExcludedIds] = useState<string[]>([]);
@@ -115,15 +159,28 @@ export function useBatchGeneration() {
     setCompleted(0);
     setTotal(0);
     setFatalError(null);
+    setSession(0);
+    setSessionTotal(0);
+    setStopRequested(false);
+    stopAfterSessionRef.current = false;
     setStatus('idle');
   }, [releaseUrls]);
 
   const start = useCallback(
-    async (count: number, request: PromptSettings, references: File[] = []) => {
+    async ({
+      count,
+      sessions,
+      settings: request,
+      references = [],
+      themes = [],
+      sessionPrompts = [],
+    }: StartOptions) => {
       // img2img は参考画像 1 枚につき count 枚ずつ作る。txt2img は参考画像なしの 1 巡
       const passes: (File | null)[] =
         request.mode === 'img2img' && references.length > 0 ? references : [null];
-      const grandTotal = count * passes.length;
+      const perSession = count * passes.length;
+      const grandTotal = perSession * sessions;
+
       // 前回ぶんは破棄してから始める
       releaseUrls();
       setShots([]);
@@ -132,6 +189,10 @@ export function useBatchGeneration() {
       setCompleted(0);
       setFatalError(null);
       setTotal(grandTotal);
+      setSession(1);
+      setSessionTotal(sessions);
+      setStopRequested(false);
+      stopAfterSessionRef.current = false;
       setStatus('running');
 
       const controller = new AbortController();
@@ -139,84 +200,132 @@ export function useBatchGeneration() {
 
       let consecutiveFailures = 0;
       let done = 0;
+      // 何枚目か（種をずらすのに使う通し番号）
+      let ordinal = 0;
 
-      outer: for (let pass = 0; pass < passes.length; pass += 1) {
-      const reference = passes[pass];
-      const referenceIndex = reference ? pass + 1 : undefined;
+      outer: for (let session = 1; session <= sessions; session += 1) {
+        if (controller.signal.aborted) break;
+        setSession(session);
 
-      for (let i = 0; i < count; i += 1) {
-        if (controller.signal.aborted) break outer;
+        // 自動生成のプロンプトがあれば丸ごと差し替える。
+        // 無ければテーマを足すだけ（どちらも無ければ毎回同じプロンプト）
+        const generated = sessionPrompts[session - 1];
+        const theme = generated ? '' : themeForSession(themes, session);
+        const sessionRequest: PromptSettings = generated
+          ? { ...request, prompt: generated }
+          : theme
+            ? { ...request, prompt: withTheme(request.prompt, theme) }
+            : request;
 
-        const index = i + 1;
-        // 種を固定すると同じ絵ばかりになるので 1 枚ずつずらす。参考画像ごとにもずらす
-        const seed =
-          request.baseSeed === undefined ? undefined : request.baseSeed + pass * count + i;
+        for (let pass = 0; pass < passes.length; pass += 1) {
+          const reference = passes[pass];
+          const referenceIndex = reference ? pass + 1 : undefined;
 
-        try {
-          const [url, init] = buildRequest(request, seed, reference);
-          const response = await fetch(url, { ...init, signal: controller.signal });
+          for (let i = 0; i < count; i += 1) {
+            if (controller.signal.aborted) break outer;
 
-          const data = await response.json();
+            const index = i + 1;
+            // 同じ種だと同じ絵になるので 1 枚ずつずらす。
+            // 開始シード値の指定が無ければ 1 枚ごとにランダムに選ぶ。
+            const seed = seedFor(request.baseSeed, ordinal);
+            ordinal += 1;
 
-          if (!response.ok) {
-            throw new Error(data?.error ?? `HTTP ${response.status}`);
+            try {
+              const [url, init] = buildRequest(sessionRequest, seed, reference);
+
+              // スタブのときも組み立ては同じところを通し、送る直前で差し替える。
+              // こうすると「実際に送られるはずのもの」がそのまま記録される
+              const data = isStubMode
+                ? await stubGenerate(
+                    promptOf(init),
+                    seed,
+                    sessionRequest.mode === 'img2img'
+                      ? sessionRequest.img2imgModel
+                      : 'stub.txt2img',
+                    `${session}-${index}`,
+                  )
+                : await (async () => {
+                    const response = await fetch(url, {
+                      ...init,
+                      signal: controller.signal,
+                    });
+                    const body = await response.json();
+                    if (!response.ok) {
+                      throw new Error(body?.error ?? `HTTP ${response.status}`);
+                    }
+                    return body;
+                  })();
+
+              // data URL のまま抱えると重いので Blob に移す
+              const blob = await (await fetch(data.imageUrl)).blob();
+              const objectUrl = URL.createObjectURL(blob);
+              urlsRef.current.push(objectUrl);
+
+              // 依頼した寸法と返ってきた寸法がずれることがあるので実測する
+              const size = await measure(blob, request.width, request.height);
+
+              setShots((prev) => [
+                ...prev,
+                {
+                  id: `${Date.now()}-${session}-${pass}-${index}`,
+                  index,
+                  referenceIndex,
+                  session,
+                  theme: theme || undefined,
+                  objectUrl,
+                  blob,
+                  width: size.width,
+                  height: size.height,
+                  prompt: data.prompt,
+                  jobType: data.jobType,
+                  seed: data.seed,
+                },
+              ]);
+              consecutiveFailures = 0;
+            } catch (error) {
+              if (controller.signal.aborted) break;
+
+              const message =
+                error instanceof Error ? error.message : '生成に失敗しました';
+              setFailures((prev) => [
+                ...prev,
+                { index, referenceIndex, session, message },
+              ]);
+              consecutiveFailures += 1;
+
+              // 認証切れなどは残り全部が同じ理由で失敗するため、続けても意味がない
+              if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                setFatalError(
+                  `${MAX_CONSECUTIVE_FAILURES} 回続けて失敗したため中断しました。最後のエラー: ${message}`,
+                );
+                break outer;
+              }
+            } finally {
+              done += 1;
+              setCompleted(done);
+            }
           }
-
-          // data URL のまま抱えると重いので Blob に移す
-          const blob = await (await fetch(data.imageUrl)).blob();
-          const objectUrl = URL.createObjectURL(blob);
-          urlsRef.current.push(objectUrl);
-
-          // 依頼した寸法と返ってきた寸法がずれることがあるので実測する
-          const size = await measure(blob, request.width, request.height);
-
-          setShots((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${pass}-${index}`,
-              index,
-              referenceIndex,
-              objectUrl,
-              blob,
-              width: size.width,
-              height: size.height,
-              prompt: data.prompt,
-              jobType: data.jobType,
-              seed: data.seed,
-            },
-          ]);
-          consecutiveFailures = 0;
-        } catch (error) {
-          if (controller.signal.aborted) break;
-
-          const message =
-            error instanceof Error ? error.message : '生成に失敗しました';
-          setFailures((prev) => [
-            ...prev,
-            { index, referenceIndex, message },
-          ]);
-          consecutiveFailures += 1;
-
-          // 認証切れなどは残り全部が同じ理由で失敗するため、続けても意味がない
-          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-            setFatalError(
-              `${MAX_CONSECUTIVE_FAILURES} 回続けて失敗したため中断しました。最後のエラー: ${message}`,
-            );
-            break outer;
-          }
-        } finally {
-          done += 1;
-          setCompleted(done);
         }
-      }
+
+        // 「このセッションで停止」はここで効く。走っているセッションは最後まで作る
+        if (stopAfterSessionRef.current) break;
       }
 
       const wasAborted = controller.signal.aborted;
       abortRef.current = null;
-      setStatus(wasAborted ? 'cancelled' : 'done');
+      setStatus(wasAborted || stopAfterSessionRef.current ? 'cancelled' : 'done');
     },
     [releaseUrls],
   );
+
+  /**
+   * 走っているセッションだけ作り切って、次のセッションに進まない。
+   * 途中で切ると中途半端な枚数になるので、区切りまでは進める。
+   */
+  const stopAfterSession = useCallback(() => {
+    stopAfterSessionRef.current = true;
+    setStopRequested(true);
+  }, []);
 
   const toggleExcluded = useCallback((id: string) => {
     setExcludedIds((prev) =>
@@ -254,8 +363,12 @@ export function useBatchGeneration() {
     completed,
     total,
     fatalError,
+    session,
+    sessionTotal,
+    stopRequested,
     start,
     cancel,
+    stopAfterSession,
     reset,
     isRunning: status === 'running',
   };
