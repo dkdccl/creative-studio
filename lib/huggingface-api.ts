@@ -37,6 +37,9 @@ const MAX_WAIT_ROUNDS = 4;
 /** 待ち時間が分からないときの既定 */
 const DEFAULT_WAIT_MS = 20000;
 
+/** 一時的な失敗をここで掛け直す回数 */
+const MAX_RETRIES = 3;
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** エンドポイントを組み立てる。末尾のスラッシュは重ねない */
@@ -65,11 +68,47 @@ function readError(text: string): { message: string; waitMs: number | null } {
   }
 }
 
+/** 掛け直しても意味がない失敗か。キーの誤りやモデル名の誤りは何度やっても同じ */
+function isPermanent(message: string): boolean {
+  return /認証に失敗|モデルが見つかりません/.test(message);
+}
+
 /**
  * 画像を 1 枚作る。
- * 失敗したら投げる。ページ単位の再試行は呼び出し側（kindle-job）が受け持つ。
+ *
+ * 通信の切れや 5xx は一時的なことが多いので、ここで最大 3 回まで掛け直す。
+ * キーの誤りなど直らない失敗はすぐ投げる。
+ * それでも駄目ならページ単位の再試行（kindle-job）に引き継ぐ。
  */
-export async function generateImageOnHuggingFace({
+export async function generateImageOnHuggingFace(
+  options: HuggingFaceGenerateOptions,
+): Promise<Buffer> {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt += 1) {
+    try {
+      return await requestImage(options);
+    } catch (error: any) {
+      lastError = error;
+      const message = error?.message ?? String(error);
+      if (isPermanent(message)) throw error;
+
+      if (attempt < MAX_RETRIES) {
+        const wait = 3000 * attempt;
+        console.log(
+          `⏳ 画像生成に失敗（${attempt}/${MAX_RETRIES}）。` +
+            `${wait / 1000} 秒後に掛け直します: ${message.slice(0, 120)}`,
+        );
+        await sleep(wait);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+/** 実際に 1 回呼ぶ */
+async function requestImage({
   prompt,
   negativePrompt,
   width,

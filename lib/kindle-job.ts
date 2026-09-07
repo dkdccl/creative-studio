@@ -74,6 +74,8 @@ export interface JobReporter {
   error(message: string): void;
   /** バッチの開始 */
   batch(index: number, total: number, from: number, to: number): void;
+  /** ページ 1 枚に取りかかるとき */
+  pageStart(pageNumber: number, total: number, state: BookPageState): void;
   /** ページ 1 枚が終わったとき */
   page(pageNumber: number, total: number, state: BookPageState): void;
 }
@@ -347,6 +349,8 @@ export async function runBookJob(
       if (page.status === 'done' && (await hasPageImage(paths, pageNumber))) {
         continue;
       }
+
+      reporter.pageStart(pageNumber, state.totalPages, page);
 
       let lastError: unknown = null;
       for (let attempt = 1; attempt <= MAX_PAGE_ATTEMPTS; attempt += 1) {

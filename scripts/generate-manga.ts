@@ -67,13 +67,22 @@ function createReporter(startedAt: number): JobReporter {
         `⏳ Batch ${index}/${total}: P${from}-P${to} 生成中... (${elapsed()}経過)`,
       );
     },
-    page: (pageNumber, total, page) => {
+    // 1 枚に数十秒かかるので、取りかかった時点で出す。
+    // 待ち時間の長い作業なので、終わってからでは遅い
+    pageStart: (pageNumber, total, page) => {
       const scene = page.sceneType ? ` ${page.sceneType}` : '';
-      const mark = page.status === 'done' ? '·' : '✗';
       console.log(
-        `   ${mark} P${String(pageNumber).padStart(3, ' ')}/${total}` +
+        `   [${String(pageNumber).padStart(3, ' ')}/${total}] Generating image ${pageNumber}...` +
           ` ${page.panelsCount}コマ${page.grid ? ` (${page.grid})` : ''}${scene}` +
           ` (${elapsed()}経過)`,
+      );
+    },
+    // うまくいったページは pageStart で出しているので、ここは失敗だけ
+    page: (pageNumber, total, page) => {
+      if (page.status === 'done') return;
+      console.log(
+        `   [${String(pageNumber).padStart(3, ' ')}/${total}] ❌ 未完成` +
+          `${page.error ? `: ${page.error.slice(0, 90)}` : ''}`,
       );
     },
   };
@@ -196,7 +205,7 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
 
   if (result.status === 'done') {
     console.log(
-      `✅ PDF 保存完了: ${result.state.pdfPath} (${formatBytes(result.state.pdfBytes)})`,
+      `✅ Complete! ${result.state.pdfPath} (${formatBytes(result.state.pdfBytes)})`,
     );
     console.log(`   ページ画像 : ${paths.pagesDir}`);
     console.log(`   メタデータ : ${paths.metadataFile}`);

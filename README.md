@@ -21,13 +21,14 @@ npm install
 ```
 
 ```bash
-cp .env.local.example .env.local
+cp .env.example .env.local
 ```
 
-`.env.local` に `OPENAI_API_KEY` を入れれば動きます。ほかは使う機能だけ埋めてください。
+`.env.local` に `OPENAI_API_KEY` と `HUGGINGFACE_API_KEY` を入れれば動きます。
+ほかは使う機能だけ埋めてください。
 
 > ⚠️ `.env.local` は Git に入りません（`.gitignore` が除外）。
-> 公開用の雛形は `.env.local.example`（値は空）です。キーは README にもコードにも書きません。
+> 公開用の雛形は `.env.example`（値は空）です。キーは README にもコードにも書きません。
 
 環境変数は [lib/config.ts](lib/config.ts) からだけ読み出します。雛形のままの値
 （`your_..._here` など）は未設定として扱われるので、キーを入れる前でも画面は動きます。
