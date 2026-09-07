@@ -47,12 +47,23 @@ export const config = {
       resolve(process.env.HUGGINGFACE_MODEL) ??
       'stabilityai/stable-diffusion-xl-base-1.0',
     /**
-     * エンドポイントの土台。
-     * 新しい router 形式と、従来の api-inference 形式のどちらでも動く。
+     * 推論の提供元。
+     *
+     * 以前の hf-inference は画像生成の提供を終えており（410 が返る）、
+     * いまは fal-ai / nscale などの提供元へ振り分けられる。
+     * 未設定ならモデルに合わせて既定の提供元を選ぶ。
      */
+    provider: resolve(process.env.HUGGINGFACE_PROVIDER),
+    /** ルーターの土台 */
     baseUrl:
       resolve(process.env.HUGGINGFACE_BASE_URL) ??
-      'https://router.huggingface.co/hf-inference/models',
+      'https://router.huggingface.co',
+    /**
+     * 生成する画素数。Kindle ページと同じ 2:3 に近い縦長にする。
+     * 提供元ごとに上限が違うので、既定はモデル側で決める。
+     */
+    width: Number(resolve(process.env.HUGGINGFACE_WIDTH) ?? 0),
+    height: Number(resolve(process.env.HUGGINGFACE_HEIGHT) ?? 0),
     /** 1 枚あたりの待ち時間の上限（ミリ秒） */
     timeoutMs: Number(resolve(process.env.HUGGINGFACE_TIMEOUT_MS) ?? 180000),
     /** 拡散のステップ数 */

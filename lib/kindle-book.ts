@@ -1,3 +1,4 @@
+import type { StoryOutline } from '@/lib/openai-client';
 import {
   clampBookPages,
   type PanelCount,
@@ -113,8 +114,10 @@ export interface BookPageState {
   sceneType?: SceneType;
   /** そのコマ数にした理由（AI 判定） */
   reason?: string;
-  /** このページで描く場面。AI が組んだネーム */
+  /** このページで描く場面。AI が組んだネーム（日本語） */
   segment: string;
+  /** 画像モデルに渡す英語のプロンプト */
+  imagePrompt?: string;
   /** コマ順のセリフ。セリフのないコマは空文字 */
   dialogues?: string[];
   status: BookPageStatus;
@@ -142,6 +145,12 @@ export interface BookJobState {
   batchSize: number;
   /** 絵をどこで作ったか */
   backend: ImageBackend;
+  /**
+   * 最初に決めた構想（登場人物・章立て）。
+   * ネームはバッチごとに作るので、これを毎回渡して人物と筋を揃える。
+   * metadata.json に残るので、手で直してから再開することもできる。
+   */
+  outline?: StoryOutline;
   status: BookJobStatus;
   createdAt: string;
   updatedAt: string;

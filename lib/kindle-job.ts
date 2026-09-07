@@ -16,7 +16,7 @@ import {
   type ImageBackend,
 } from '@/lib/kindle-book';
 import { generatePageImage } from '@/lib/image-processor';
-import { planMangaPages } from '@/lib/openai-client';
+import { planMangaPages, planStoryOutline } from '@/lib/openai-client';
 import { buildKindlePdf } from '@/lib/pdf-generator';
 import {
   ensureBookDirs,
@@ -29,6 +29,7 @@ import {
   type BookPaths,
 } from '@/lib/kindle-workspace';
 import {
+  buildEnglishMangaPrompt,
   buildMangaGenerationPrompt,
   clampBookPages,
   getGridLayout,
@@ -102,18 +103,27 @@ async function generateAndSavePage(
   state: BookJobState,
   page: BookPageState,
 ): Promise<void> {
-  const prompt = buildMangaGenerationPrompt({
-    story: state.story,
-    pageNumber: page.pageNumber,
-    totalPages: state.totalPages,
-    panelsCount: page.panelsCount,
-    mood: state.mood,
-    sceneType: page.sceneType,
-    orientation: 'portrait',
-    segment: page.segment,
-    // セリフは PDF 側で吹き出しに描くので、絵には文字を入れさせない
-    withoutText: true,
-  });
+  // Stable Diffusion 系は日本語をほとんど解さないので英語で渡す。
+  // OpenAI の画像モデルは日本語のほうが場面を汲んでくれる。
+  const prompt =
+    state.backend === 'huggingface' && page.imagePrompt
+      ? buildEnglishMangaPrompt({
+          imagePrompt: page.imagePrompt,
+          panelsCount: page.panelsCount,
+          sceneType: page.sceneType,
+        })
+      : buildMangaGenerationPrompt({
+          story: state.story,
+          pageNumber: page.pageNumber,
+          totalPages: state.totalPages,
+          panelsCount: page.panelsCount,
+          mood: state.mood,
+          sceneType: page.sceneType,
+          orientation: 'portrait',
+          segment: page.segment,
+          // セリフは PDF 側で吹き出しに描くので、絵には文字を入れさせない
+          withoutText: true,
+        });
 
   const bytes = await generatePageImage({
     backend: state.backend,
@@ -221,6 +231,24 @@ async function planPages(
 ): Promise<void> {
   const total = Math.ceil(state.totalPages / state.batchSize);
 
+  // 先に 1 冊ぶんの構想を決める。ページのネームはバッチごとに作るので、
+  // これが無いと 12 回別々に考えることになり、人物も筋もブレる
+  if (state.backend !== 'stub' && !state.outline) {
+    state.outline = await planStoryOutline({
+      title: state.title,
+      story: state.story,
+      mood: state.mood,
+      totalPages: state.totalPages,
+    });
+    const names = state.outline.characters.map((c) => c.name).join('、');
+    record(state, 'info', `構想: ${state.outline.chapters.length}章 / ${names}`);
+    reporter.info(
+      `構想ができました: ${state.outline.chapters.length}章` +
+        (names ? ` / 登場人物 ${names}` : ''),
+    );
+    await writeJobState(paths, state);
+  }
+
   for (let from = 1; from <= state.totalPages; from += state.batchSize) {
     if (cancelRequested) return;
     const to = Math.min(state.totalPages, from + state.batchSize - 1);
@@ -252,12 +280,14 @@ async function planPages(
         to,
         totalPages: state.totalPages,
         previously: previously || undefined,
+        outline: state.outline,
       });
 
       for (const item of plan) {
         const page = state.pages[item.pageNumber - 1];
         if (!page) continue;
         page.segment = item.description;
+        page.imagePrompt = item.imagePrompt;
         page.panelsCount = item.panelsCount;
         page.sceneType = item.sceneType;
         page.reason = item.reason;

@@ -65,14 +65,219 @@ export async function generateText({
 }
 
 // ---------------------------------------------------------------
+// 1 冊ぶんの構想（登場人物・章立て）
+// ---------------------------------------------------------------
+
+export interface StoryCharacter {
+  name: string;
+  age?: number;
+  /** 主人公 / 恋愛対象 / 同僚 など */
+  role: string;
+  /**
+   * 見た目の英語表記。
+   * 120 ページを 12 バッチに分けて作るので、これを毎回
+   * 画像プロンプトに混ぜないと、同じ人物が別人の顔になってしまう。
+   */
+  appearance: string;
+}
+
+export interface StoryChapter {
+  chapter: number;
+  fromPage: number;
+  toPage: number;
+  /** その章で起きること */
+  scene: string;
+}
+
+export interface StoryOutline {
+  title: string;
+  characters: StoryCharacter[];
+  chapters: StoryChapter[];
+  /** 作品全体の調子。「恋愛ドラマ、白黒漫画、オフィスと街中の場面」など */
+  tone: string;
+}
+
+const OUTLINE_SYSTEM_PROMPT = [
+  'あなたは漫画の原作者です。',
+  'タイトルから 1 冊ぶんの構想（登場人物と章立て）を組み立てます。',
+  '出力は JSON オブジェクトだけ。説明・見出し・コードフェンスは一切書きません。',
+].join('\n');
+
+/** 応答から JSON オブジェクトを取り出す */
+function parseOutline(response: string): Record<string, unknown> | null {
+  const match = response.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface PlanStoryOutlineOptions {
+  title: string;
+  story?: string;
+  mood: string;
+  totalPages: number;
+  /** 章の区切り方の目安。バッチと合わせておくと扱いやすい */
+  pagesPerChapter?: number;
+}
+
+/**
+ * 1 冊ぶんの構想を最初に 1 回だけ作る。
+ *
+ * ページのネームはバッチごとに作るので、そのままだと
+ * 12 回別々に考えることになり、人物名も見た目も話の筋もブレる。
+ * 先に登場人物と章立てを決めて、毎回それを渡して縛る。
+ *
+ * 失敗しても本作りは止めたくないので、投げずに最低限の構想を返す。
+ */
+export async function planStoryOutline({
+  title,
+  story,
+  mood,
+  totalPages,
+  pagesPerChapter = 20,
+}: PlanStoryOutlineOptions): Promise<StoryOutline> {
+  const chapterCount = Math.max(1, Math.ceil(totalPages / pagesPerChapter));
+
+  const user = [
+    `【作品タイトル】\n${title}`,
+    story?.trim()
+      ? `【あらすじ】\n${story.trim()}`
+      : '【あらすじ】\nタイトルから膨らませてください。',
+    `【雰囲気】\n${mood}`,
+    `【全体の長さ】\n全 ${totalPages} ページ`,
+    [
+      '【条件】',
+      '- characters は 3〜5 人。name は日本語の氏名、role は役どころ',
+      '- appearance は英語。髪型・髪色・服装・体格・年齢感を具体的な名詞句で（30 語以内）。',
+      '  画像生成モデルに毎回渡して同じ人物に見せるための記述なので、固有名詞は使わない',
+      `- chapters はちょうど ${chapterCount} 章。fromPage / toPage で 1〜${totalPages} を隙間なく分けること`,
+      '- scene はその章で起きることを 60 文字以内の日本語で',
+      '- tone は作品全体の調子を 40 文字以内で',
+    ].join('\n'),
+    [
+      '【出力形式】',
+      'JSON オブジェクトのみ。例:',
+      '{"title": "定時後、君に恋をする",',
+      ' "characters": [{"name": "白石美月", "age": 27, "role": "主人公",',
+      '   "appearance": "a 27 year old woman, shoulder length black hair in a low ponytail, white blouse and navy skirt, slim, gentle tired eyes"}],',
+      ' "chapters": [{"chapter": 1, "fromPage": 1, "toPage": 20, "scene": "残業続きのオフィスで二人が出会う"}],',
+      ' "tone": "恋愛ドラマ、白黒漫画、オフィスと街中の場面"}',
+    ].join('\n'),
+  ].join('\n\n');
+
+  const fallback: StoryOutline = {
+    title,
+    characters: [],
+    chapters: [{ chapter: 1, fromPage: 1, toPage: totalPages, scene: story?.trim() || title }],
+    tone: mood,
+  };
+
+  try {
+    const started = Date.now();
+    const response = await generateText({
+      system: OUTLINE_SYSTEM_PROMPT,
+      user,
+    });
+    console.log(`🧠 構想（登場人物・章立て）${Date.now() - started}ms`);
+
+    const raw = parseOutline(response);
+    if (!raw) {
+      console.error('❌ 構想の JSON を取り出せませんでした:', response.slice(0, 200));
+      return fallback;
+    }
+
+    const characters: StoryCharacter[] = (
+      Array.isArray(raw.characters) ? raw.characters : []
+    )
+      .map((item: any) => ({
+        name: String(item?.name ?? '').trim().slice(0, 40),
+        age: Number.isFinite(Number(item?.age)) ? Number(item.age) : undefined,
+        role: String(item?.role ?? '').trim().slice(0, 40),
+        appearance: String(item?.appearance ?? '').trim().slice(0, 300),
+      }))
+      .filter((c: StoryCharacter) => c.name !== '')
+      .slice(0, 6);
+
+    const chapters: StoryChapter[] = (
+      Array.isArray(raw.chapters) ? raw.chapters : []
+    )
+      .map((item: any, i: number) => ({
+        chapter: Math.round(Number(item?.chapter)) || i + 1,
+        fromPage: Math.max(1, Math.round(Number(item?.fromPage)) || 1),
+        toPage: Math.min(totalPages, Math.round(Number(item?.toPage)) || totalPages),
+        scene: String(item?.scene ?? '').trim().slice(0, 120),
+      }))
+      .filter((c: StoryChapter) => c.toPage >= c.fromPage)
+      .sort((a: StoryChapter, b: StoryChapter) => a.fromPage - b.fromPage);
+
+    return {
+      title,
+      characters,
+      chapters: chapters.length > 0 ? chapters : fallback.chapters,
+      tone:
+        typeof raw.tone === 'string' && raw.tone.trim()
+          ? raw.tone.trim().slice(0, 100)
+          : mood,
+    };
+  } catch (error) {
+    console.error('❌ 構想の作成に失敗:', error);
+    return fallback;
+  }
+}
+
+/** 構想を、ネーム作成のプロンプトに差し込める形の文にする */
+export function describeOutline(
+  outline: StoryOutline,
+  from: number,
+  to: number,
+): string {
+  const characters = outline.characters
+    .map(
+      (c) =>
+        `- ${c.name}（${c.age ? `${c.age}歳・` : ''}${c.role}）: ${c.appearance}`,
+    )
+    .join('\n');
+
+  // いま作っている範囲に重なる章だけを渡す
+  const chapters = outline.chapters
+    .filter((c) => c.toPage >= from && c.fromPage <= to)
+    .map((c) => `- 第${c.chapter}章（${c.fromPage}〜${c.toPage}ページ）: ${c.scene}`)
+    .join('\n');
+
+  return [
+    `【作品の調子】\n${outline.tone}`,
+    characters
+      ? `【登場人物】\n${characters}\n` +
+        '※ imagePrompt には、そのページに出る人物の appearance をそのまま英語で入れること。' +
+        '毎ページ入れないと同じ人物が別人の顔になります。'
+      : null,
+    chapters ? `【この範囲にかかる章】\n${chapters}` : null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n\n');
+}
+
+// ---------------------------------------------------------------
 // 単行本のネーム作り
 // ---------------------------------------------------------------
 
 /** 1 ページぶんの設計 */
 export interface MangaPagePlan {
   pageNumber: number;
-  /** そのページで描く場面。画像プロンプトの素になる */
+  /** そのページで描く場面（日本語）。metadata に残す */
   description: string;
+  /**
+   * 画像モデルに渡す英語のプロンプト。
+   * Stable Diffusion 系は日本語をほとんど解さず、
+   * 日本語で渡すと場面を無視した「和風の絵」になってしまう。
+   */
+  imagePrompt: string;
   sceneType: SceneType;
   panelsCount: PanelCount;
   /** そのコマ数にした理由 */
@@ -92,6 +297,8 @@ export interface PlanMangaPagesOptions {
   totalPages: number;
   /** 直前までの流れ。バッチをまたいでも話が繋がるように渡す */
   previously?: string;
+  /** 最初に決めた構想。人物と章立てをバッチ間で揃えるために渡す */
+  outline?: StoryOutline;
 }
 
 /** 1 コマぶんのセリフの上限。長いと吹き出しに収まらない */
@@ -157,6 +364,7 @@ export async function planMangaPages({
   to,
   totalPages,
   previously,
+  outline,
 }: PlanMangaPagesOptions): Promise<MangaPagePlan[]> {
   const count = to - from + 1;
 
@@ -166,6 +374,7 @@ export async function planMangaPages({
     `【雰囲気】\n${mood}`,
     `【全体の長さ】\n全 ${totalPages} ページ`,
     `【今回作るページ】\n${from} 〜 ${to} ページ目（${count} ページ）`,
+    outline ? describeOutline(outline, from, to) : null,
     previously ? `【ここまでの流れ】\n${previously}` : null,
     `【場面の種類】\n${SCENE_TYPE_LIST}`,
     SCENE_CRITERIA,
@@ -175,6 +384,10 @@ export async function planMangaPages({
       `- 物語全体で ${totalPages} ページに収まるよう、この範囲の進み具合を配分すること`,
       '- 全ページを同じ種類にせず、緩急をつけること',
       '- description は「そのページで描く絵」を 60 文字以内の日本語で。人物・場所・動作を具体的に',
+      '- imagePrompt は description と同じ内容を英語で。画像生成モデルに渡すので、',
+      '  人物・服装・場所・動作・構図・時間帯を具体的な英語の名詞句で並べること（80 語以内）。',
+      '  日本語や人物名は使わず、そのページに出る登場人物の appearance を書き写すこと。',
+      '  コマ割りや画風の指定は書かない（こちらで足す）',
       '- dialogues の要素数は recommendedFrames と同じにすること',
       `- セリフは 1 つ ${MAX_DIALOGUE_LENGTH} 文字以内。セリフのないコマは空文字 ""`,
       '- reason は 30 文字以内',
@@ -183,6 +396,7 @@ export async function planMangaPages({
       '【出力形式】',
       'JSON 配列のみ。例:',
       `[{"pageNumber": ${from}, "description": "深夜のオフィス、机に残る彼女を遠くから見る主人公",`,
+      '  "imagePrompt": "a young man in a shirt watching a woman working at her desk from across a dark empty office at night, single desk lamp, wide establishing shot",',
       '  "sceneType": "景色", "recommendedFrames": 2, "reason": "舞台を見せる導入",',
       '  "dialogues": ["", "まだ残ってるのか…"]}]',
     ].join('\n'),
@@ -194,6 +408,7 @@ export async function planMangaPages({
   const fallback = (pageNumber: number): MangaPagePlan => ({
     pageNumber,
     description: story?.trim() || title,
+    imagePrompt: 'two characters talking in a room, dramatic composition',
     sceneType: DEFAULT_SCENE_TYPE,
     panelsCount: resolveFrameCount(DEFAULT_SCENE_TYPE, undefined),
     dialogues: [],
@@ -249,9 +464,15 @@ export async function planMangaPages({
         ? raw.reason.trim().slice(0, 60)
         : undefined;
 
+    const imagePrompt =
+      typeof raw.imagePrompt === 'string' && raw.imagePrompt.trim()
+        ? raw.imagePrompt.trim().slice(0, 400)
+        : fallback(pageNumber).imagePrompt;
+
     return {
       pageNumber,
       description,
+      imagePrompt,
       sceneType,
       panelsCount: normalizePanelCount(panelsCount),
       reason,

@@ -636,6 +636,59 @@ export function splitStoryByPages(story: string, totalPages: number): string[] {
   return result;
 }
 
+/** 場面の種類ごとの、英語での撮り方の指示 */
+const SCENE_DIRECTION_EN: Record<SceneType, string> = {
+  感動: 'wide dramatic shot, strong emotional expression, speed lines and tone for emphasis',
+  会話: 'over-the-shoulder and bust-up shots alternating, characters facing each other',
+  アクション: 'dynamic angles, motion lines, exaggerated action poses',
+  景色: 'detailed background, establishing shot, characters small or absent',
+  表情: 'extreme close-up on faces, detailed eyes, emotional expression',
+};
+
+/**
+ * Stable Diffusion 系に渡す英語のプロンプトを組み立てる。
+ *
+ * これらのモデルは日本語をほとんど解さず、日本語で渡すと
+ * 場面を無視した「和風の絵」になってしまう。
+ * 場面の説明（英語）は AI のネームから受け取り、
+ * コマ割りと画風の指定をここで足す。
+ */
+export function buildEnglishMangaPrompt({
+  imagePrompt,
+  panelsCount,
+  sceneType,
+  orientation = 'portrait',
+}: {
+  imagePrompt: string;
+  panelsCount: PanelCount;
+  sceneType?: SceneType;
+  orientation?: PageOrientation;
+}): string {
+  const panels = normalizePanelCount(panelsCount);
+  const grid = getGridLayout(panels, orientation);
+  const gridRows = grid.hasWideLastPanel ? grid.rows - 1 : grid.rows;
+
+  const layout =
+    panels === 1
+      ? 'a single full-page panel filling the whole page, one thick black border around the edge'
+      : grid.hasWideLastPanel
+        ? `exactly ${panels} panels: a ${grid.columns}-column by ${gridRows}-row grid of ${
+            panels - 1
+          } equal panels, plus one full-width panel across the bottom`
+        : `exactly ${panels} panels arranged in a ${grid.columns}-column by ${grid.rows}-row grid of equal rectangles`;
+
+  return [
+    'black and white Japanese manga page, screentone shading, clean ink linework, high contrast',
+    `page layout: ${layout}, thick black panel borders, thin white gutters between panels`,
+    `scene: ${imagePrompt.trim()}`,
+    sceneType ? `direction: ${SCENE_DIRECTION_EN[sceneType]}` : null,
+    // 文字はあとから PDF 側で吹き出しに入れるので、絵には描かせない
+    'absolutely no text, no letters, no speech bubbles, no lettering, no captions, no signature, no watermark',
+  ]
+    .filter((line): line is string => line !== null)
+    .join('. ');
+}
+
 export interface MangaPromptOptions {
   /** ストーリー全体。ページごとの場面はここから切り出す */
   story: string;

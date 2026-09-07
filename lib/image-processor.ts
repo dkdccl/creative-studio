@@ -1,4 +1,5 @@
 import { Jimp } from 'jimp';
+import sharp from 'sharp';
 
 import { generateImageOnHuggingFace } from '@/lib/huggingface-api';
 import {
@@ -183,11 +184,40 @@ export interface KindlePageImage {
   quality: number;
 }
 
+/** 画質を指定して 1 枚焼く。sharp が使えなければ jimp に落とす */
+async function encodeJpeg(file: string, quality: number): Promise<Buffer> {
+  try {
+    // sharp は Lanczos3 で拡大するので、引き伸ばしたときの輪郭が jimp より綺麗
+    return await sharp(file)
+      .resize(KINDLE_PAGE_WIDTH_PX, KINDLE_PAGE_HEIGHT_PX, {
+        fit: 'fill',
+        kernel: 'lanczos3',
+      })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+  } catch (error) {
+    // sharp はネイティブ依存なので、環境によっては読み込めないことがある。
+    // 1 冊まるごと落とすより、質を少し譲ってでも作り切る
+    if (!warnedAboutSharp) {
+      warnedAboutSharp = true;
+      console.warn(`⚠️  sharp を使えないので jimp で処理します: ${error}`);
+    }
+    const image = await Jimp.read(file);
+    const resized = image.resize({
+      w: KINDLE_PAGE_WIDTH_PX,
+      h: KINDLE_PAGE_HEIGHT_PX,
+    });
+    return Buffer.from(await resized.getBuffer('image/jpeg', { quality }));
+  }
+}
+
+let warnedAboutSharp = false;
+
 /**
  * 1 ページぶんの画像を、Kindle のページサイズちょうどの JPEG にする。
  *
  * 生成元が返すのは 1024x1536 なので、規格の 1456x2188 に伸ばす。
- * 引き伸ばしで解像感が増えるわけではないが、
+ * 引き伸ばしで細部が増えるわけではないが、
  * Kindle 側が求める画素数を満たしていないと弾かれるため合わせる。
  *
  * PNG のままだと 120 ページで数百 MB になるので JPEG に焼き直し、
@@ -197,16 +227,10 @@ export async function toKindlePageJpeg(
   file: string,
   maxBytes: number,
 ): Promise<KindlePageImage> {
-  const image = await Jimp.read(file);
-  const resized = image.resize({
-    w: KINDLE_PAGE_WIDTH_PX,
-    h: KINDLE_PAGE_HEIGHT_PX,
-  });
-
   let last: KindlePageImage | null = null;
 
   for (const quality of JPEG_QUALITY_STEPS) {
-    const buffer = Buffer.from(await resized.getBuffer('image/jpeg', { quality }));
+    const buffer = await encodeJpeg(file, quality);
     last = { buffer, quality };
     if (buffer.length <= maxBytes) return last;
   }
