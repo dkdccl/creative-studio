@@ -5,7 +5,7 @@ import {
   buildNovelScenePrompt,
   clampNovelChars,
 } from '@/lib/novel-prompt';
-import { generateText, isOpenAIConfigured } from '@/lib/openai';
+import { generateText, isOpenAIConfigured } from '@/lib/openai-client';
 import { createEmptyNovelProject, type Character } from '@/lib/types';
 
 export const runtime = 'nodejs';

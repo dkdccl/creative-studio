@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { generateText } from '@/lib/openai';
+import { generateText } from '@/lib/openai-client';
 import { normalizePanelCount, type PageConfig, type PanelCount } from '@/lib/scene-blocks';
 
 /**

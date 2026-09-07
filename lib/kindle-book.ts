@@ -29,8 +29,11 @@ export const KINDLE_PAGE_HEIGHT_PT = (KINDLE_PAGE_HEIGHT_PX / KINDLE_DPI) * 72;
 /** 完成 PDF の上限。Kindle の投稿制限に合わせる */
 export const MAX_PDF_BYTES = 50 * 1024 * 1024;
 
-/** PDF の構造やフォントぶんの余裕。ページの割り当てからは差し引く */
-const PDF_OVERHEAD_BYTES = 2 * 1024 * 1024;
+/**
+ * PDF の構造と、埋め込む日本語フォントぶんの余裕。
+ * ページの割り当てからは差し引く。
+ */
+const PDF_OVERHEAD_BYTES = 4 * 1024 * 1024;
 
 /** 1 ページあたりに使ってよいバイト数 */
 export function pageByteBudget(totalPages: number): number {
@@ -43,6 +46,8 @@ export const JPEG_QUALITY_STEPS = [88, 82, 74, 66, 58, 50, 42] as const;
 
 /** 画像モデルに投げる縦長サイズ。1456x2188 と同じ 2:3 に最も近い */
 export const SOURCE_IMAGE_SIZE = '1024x1536' as const;
+export const SOURCE_IMAGE_WIDTH = 1024;
+export const SOURCE_IMAGE_HEIGHT = 1536;
 
 // ---------------------------------------------------------------
 // 単行本の既定値
@@ -66,7 +71,7 @@ export function batchCount(totalPages: number, batchSize: number): number {
 }
 
 // ---------------------------------------------------------------
-// ジョブの状態（logs/generation-log.json の中身）
+// ジョブの状態（metadata.json の中身）
 // ---------------------------------------------------------------
 
 export type BookJobStatus =
@@ -85,6 +90,21 @@ export type BookJobStatus =
 
 export type BookPageStatus = 'pending' | 'done' | 'failed';
 
+/**
+ * 絵をどこで作るか。
+ *
+ * - huggingface: Hugging Face の Inference API。1 枚あたりが安く、単行本の既定
+ * - openai     : OpenAI の画像モデル。品質は高いが 1 冊で数十ドルかかる
+ * - stub       : 生成せずコマ枠だけのダミー。流れの確認用
+ */
+export type ImageBackend = 'huggingface' | 'openai' | 'stub';
+
+export const IMAGE_BACKENDS: ImageBackend[] = ['huggingface', 'openai', 'stub'];
+
+export function isImageBackend(value: unknown): value is ImageBackend {
+  return (IMAGE_BACKENDS as string[]).includes(String(value));
+}
+
 export interface BookPageState {
   pageNumber: number;
   panelsCount: PanelCount;
@@ -93,8 +113,10 @@ export interface BookPageState {
   sceneType?: SceneType;
   /** そのコマ数にした理由（AI 判定） */
   reason?: string;
-  /** このページで描く場面 */
+  /** このページで描く場面。AI が組んだネーム */
   segment: string;
+  /** コマ順のセリフ。セリフのないコマは空文字 */
+  dialogues?: string[];
   status: BookPageStatus;
   /** これまでの試行回数 */
   attempts: number;
@@ -118,12 +140,8 @@ export interface BookJobState {
   mood: string;
   totalPages: number;
   batchSize: number;
-  /**
-   * 画像生成 API を呼ばずに、コマ枠だけのダミーページを作るモード。
-   * 120 ページを実際に作ると数十ドルかかるので、
-   * 通し確認はこれで行えるようにしてある。
-   */
-  stub: boolean;
+  /** 絵をどこで作ったか */
+  backend: ImageBackend;
   status: BookJobStatus;
   createdAt: string;
   updatedAt: string;

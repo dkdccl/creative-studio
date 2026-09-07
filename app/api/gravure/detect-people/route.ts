@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { inspectImage, isOpenAIConfigured } from '@/lib/openai';
+import { inspectImage, isOpenAIConfigured } from '@/lib/openai-client';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;

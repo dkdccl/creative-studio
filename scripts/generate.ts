@@ -2,7 +2,7 @@
 import './load-env';
 
 import { parseArgs } from './cli-args';
-import { MANGA_USAGE, runMangaMode } from './modes/manga';
+import { MANGA_USAGE, runMangaMode } from './generate-manga';
 import { WORKSPACE_DIR } from '@/lib/kindle-workspace';
 
 /**

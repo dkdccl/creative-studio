@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { generateText } from './openai';
+import { generateText } from './openai-client';
 
 /**
  * 小説のどこに挿絵を入れるかを、テキストモデル（既定は gpt-5.5）に決めさせる。

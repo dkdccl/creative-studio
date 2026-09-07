@@ -34,6 +34,36 @@ export const config = {
       resolve(process.env.OPENAI_TEXT_MODEL) ??
       'gpt-5.5',
   },
+  /**
+   * Hugging Face の Inference API。
+   *
+   * 画像生成を OpenAI の代わりにここへ回すと、1 枚あたりの単価が
+   * 一桁下がる。120 ページの単行本を作るときの既定の生成元。
+   */
+  huggingface: {
+    apiKey: resolve(process.env.HUGGINGFACE_API_KEY),
+    /** 使うモデル */
+    model:
+      resolve(process.env.HUGGINGFACE_MODEL) ??
+      'stabilityai/stable-diffusion-xl-base-1.0',
+    /**
+     * エンドポイントの土台。
+     * 新しい router 形式と、従来の api-inference 形式のどちらでも動く。
+     */
+    baseUrl:
+      resolve(process.env.HUGGINGFACE_BASE_URL) ??
+      'https://router.huggingface.co/hf-inference/models',
+    /** 1 枚あたりの待ち時間の上限（ミリ秒） */
+    timeoutMs: Number(resolve(process.env.HUGGINGFACE_TIMEOUT_MS) ?? 180000),
+    /** 拡散のステップ数 */
+    steps: Number(resolve(process.env.HUGGINGFACE_STEPS) ?? 28),
+    /** プロンプトへの寄せ具合 */
+    guidanceScale: Number(resolve(process.env.HUGGINGFACE_GUIDANCE_SCALE) ?? 7),
+    /** 絵に出したくないもの */
+    negativePrompt:
+      resolve(process.env.HUGGINGFACE_NEGATIVE_PROMPT) ??
+      'lowres, bad anatomy, bad hands, text, watermark, signature, blurry, jpeg artifacts',
+  },
   stability: {
     apiKey: resolve(process.env.STABILITY_API_KEY),
     /** v2beta の生成エンドポイント。core / sd3 / ultra から選ぶ */
@@ -62,6 +92,19 @@ export const isSupabaseConfigured = Boolean(
 );
 
 export const isOpenAIConfigured = Boolean(config.openai.apiKey);
+
+export const isHuggingFaceConfigured = Boolean(config.huggingface.apiKey);
+
+/** Hugging Face を使う直前に呼ぶ */
+export function assertHuggingFaceConfig(): { apiKey: string } {
+  const { apiKey } = config.huggingface;
+  if (!apiKey) {
+    throw new Error(
+      'HUGGINGFACE_API_KEY が未設定です。https://huggingface.co/settings/tokens で取得して .env.local に設定してください。',
+    );
+  }
+  return { apiKey };
+}
 
 /** Supabase を使う直前に呼ぶ。未設定なら理由の分かる例外を投げる */
 export function assertSupabaseConfig(): {

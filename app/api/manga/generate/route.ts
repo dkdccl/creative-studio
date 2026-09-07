@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { generateAllDialoguesWithGPT55 } from '@/lib/gpt55-dialogues';
-import { generateImage, isOpenAIConfigured } from '@/lib/openai';
+import { generateImage, isOpenAIConfigured } from '@/lib/openai-client';
 import {
   SCENE_TYPES,
   buildMangaGenerationPrompt,

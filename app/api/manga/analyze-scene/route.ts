@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { isOpenAIConfigured } from '@/lib/openai';
+import { isOpenAIConfigured } from '@/lib/openai-client';
 import { analyzeScene, analyzeStoryLayout } from '@/lib/scene-analysis';
 import { clampPages } from '@/lib/scene-blocks';
 

@@ -13,7 +13,7 @@ import {
   planIllustrations,
   type SceneForPlanning,
 } from '@/lib/novel-illustration';
-import { generateImage, isOpenAIConfigured } from '@/lib/openai';
+import { generateImage, isOpenAIConfigured } from '@/lib/openai-client';
 
 export const runtime = 'nodejs';
 

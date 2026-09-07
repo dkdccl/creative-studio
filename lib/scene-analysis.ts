@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { generateText } from '@/lib/openai';
+import { generateText } from '@/lib/openai-client';
 import {
   DEFAULT_SCENE_TYPE,
   SCENE_TYPES,

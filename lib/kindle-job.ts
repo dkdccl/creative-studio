@@ -1,5 +1,3 @@
-import { Jimp } from 'jimp';
-
 import {
   BATCH_INTERVAL_MS,
   DEFAULT_BATCH_SIZE,
@@ -8,7 +6,6 @@ import {
   KINDLE_PAGE_HEIGHT_PX,
   KINDLE_PAGE_WIDTH_PX,
   MAX_PAGE_ATTEMPTS,
-  SOURCE_IMAGE_SIZE,
   countPages,
   formatBytes,
   formatElapsed,
@@ -16,11 +13,13 @@ import {
   type BookJobState,
   type BookLogEvent,
   type BookPageState,
+  type ImageBackend,
 } from '@/lib/kindle-book';
-import { buildKindlePdf } from '@/lib/kindle-pdf';
+import { generatePageImage } from '@/lib/image-processor';
+import { planMangaPages } from '@/lib/openai-client';
+import { buildKindlePdf } from '@/lib/pdf-generator';
 import {
   ensureBookDirs,
-  fetchImageBytes,
   hasPageImage,
   pageFile,
   readJobState,
@@ -29,13 +28,10 @@ import {
   writeJobState,
   type BookPaths,
 } from '@/lib/kindle-workspace';
-import { generateImage } from '@/lib/openai';
-import { analyzeLayoutRange } from '@/lib/scene-analysis';
 import {
   buildMangaGenerationPrompt,
   clampBookPages,
   getGridLayout,
-  getGridShape,
   splitStoryByPages,
 } from '@/lib/scene-blocks';
 
@@ -43,7 +39,7 @@ import {
  * 単行本 1 冊ぶんの生成。
  *
  * 120 ページを一息に作ると数十分〜数時間かかるので、
- * ページ 1 枚ごとに logs/generation-log.json へ書き出しながら進む。
+ * ページ 1 枚ごとに metadata.json へ書き出しながら進む。
  * 途中で Ctrl+C を押しても、同じコマンドをもう一度実行すれば
  * 出来ているページは飛ばして続きから再開する。
  *
@@ -98,112 +94,12 @@ function record(
 // ページ画像
 // ---------------------------------------------------------------
 
-/**
- * 画像モデルを呼ばずに、コマ枠だけのダミーページを描く。
- *
- * 120 ページを実際に生成すると利用料が数十ドルかかるので、
- * 分割・バッチ・再開・PDF 化までの流れを無料で確かめられるようにしてある。
- */
-async function drawStubPage(page: BookPageState): Promise<Buffer> {
-  const width = KINDLE_PAGE_WIDTH_PX;
-  const height = KINDLE_PAGE_HEIGHT_PX;
-  const image = new Jimp({ width, height, color: 0xffffffff });
-
-  const { columns, gridRows, hasWideLastPanel } = getGridShape(
-    page.panelsCount,
-    'portrait',
-  );
-  const margin = Math.round(width * 0.05);
-  const gutter = Math.round(width * 0.02);
-  const innerW = width - margin * 2;
-  const innerH = height - margin * 2;
-  const rows = hasWideLastPanel ? gridRows + 1 : gridRows;
-  const cellW = (innerW - gutter * (columns - 1)) / columns;
-  const cellH = (innerH - gutter * (rows - 1)) / rows;
-
-  // setPixelColor はページあたり数百万回になるので、ビットマップに直接書く
-  const data = image.bitmap.data;
-
-  /** 一色で塗る。行ごとに Buffer.fill へ任せる */
-  const fillRect = (
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    rgb: [number, number, number],
-  ) => {
-    const x0 = Math.max(0, Math.round(x));
-    const y0 = Math.max(0, Math.round(y));
-    const x1 = Math.min(width, Math.round(x + w));
-    const y1 = Math.min(height, Math.round(y + h));
-    if (x1 <= x0 || y1 <= y0) return;
-
-    const pattern = Buffer.from([rgb[0], rgb[1], rgb[2], 255]);
-    for (let py = y0; py < y1; py += 1) {
-      const start = (py * width + x0) * 4;
-      data.fill(pattern, start, start + (x1 - x0) * 4);
-    }
-  };
-
-  /**
-   * コマの中身をグラデーションで埋める。
-   * 一色のままだと JPEG が小さくなりすぎて、
-   * 50MB に収める仕組みを試したことにならないため。
-   */
-  const fillGradient = (x: number, y: number, w: number, h: number) => {
-    const x0 = Math.max(0, Math.round(x));
-    const y0 = Math.max(0, Math.round(y));
-    const x1 = Math.min(width, Math.round(x + w));
-    const y1 = Math.min(height, Math.round(y + h));
-    const seed = page.pageNumber * 37;
-
-    for (let py = y0; py < y1; py += 1) {
-      let index = (py * width + x0) * 4;
-      for (let px = x0; px < x1; px += 1) {
-        const tone = 120 + (((px - x0) + (py - y0) * 2 + seed) % 120);
-        data[index] = tone;
-        data[index + 1] = tone;
-        data[index + 2] = 255 - (tone % 60);
-        data[index + 3] = 255;
-        index += 4;
-      }
-    }
-  };
-
-  const border = 6;
-  const drawPanel = (x: number, y: number, w: number, h: number) => {
-    fillRect(x, y, w, h, [0, 0, 0]);
-    fillGradient(x + border, y + border, w - border * 2, h - border * 2);
-  };
-
-  for (let r = 0; r < gridRows; r += 1) {
-    for (let c = 0; c < columns; c += 1) {
-      drawPanel(
-        margin + c * (cellW + gutter),
-        margin + r * (cellH + gutter),
-        cellW,
-        cellH,
-      );
-    }
-  }
-  if (hasWideLastPanel) {
-    drawPanel(margin, margin + gridRows * (cellH + gutter), innerW, cellH);
-  }
-
-  return Buffer.from(await image.getBuffer('image/png'));
-}
-
 /** 1 ページぶんの画像を作って保存する。失敗したら投げる */
-async function generatePageImage(
+async function generateAndSavePage(
   paths: BookPaths,
   state: BookJobState,
   page: BookPageState,
 ): Promise<void> {
-  if (state.stub) {
-    await savePageImage(paths, page.pageNumber, await drawStubPage(page));
-    return;
-  }
-
   const prompt = buildMangaGenerationPrompt({
     story: state.story,
     pageNumber: page.pageNumber,
@@ -212,17 +108,18 @@ async function generatePageImage(
     mood: state.mood,
     sceneType: page.sceneType,
     orientation: 'portrait',
+    segment: page.segment,
+    // セリフは PDF 側で吹き出しに描くので、絵には文字を入れさせない
+    withoutText: true,
   });
 
-  const images = await generateImage({ prompt, size: SOURCE_IMAGE_SIZE });
-  const image = images[0];
-  if (!image) throw new Error('画像が返りませんでした。');
+  const bytes = await generatePageImage({
+    backend: state.backend,
+    prompt,
+    page,
+  });
 
-  await savePageImage(
-    paths,
-    page.pageNumber,
-    await fetchImageBytes(image.url),
-  );
+  await savePageImage(paths, page.pageNumber, bytes);
 }
 
 // ---------------------------------------------------------------
@@ -235,7 +132,8 @@ export interface BookJobOptions {
   mood: string;
   totalPages?: number;
   batchSize?: number;
-  stub?: boolean;
+  /** 絵をどこで作るか。既定は huggingface */
+  backend?: ImageBackend;
   /** 前回の続きを使わず、最初から作り直す */
   fresh?: boolean;
   /** 置き場所を差し替えたいとき（既定は ~/creative-studio-workspace/manga） */
@@ -258,7 +156,7 @@ async function prepareState(
     const sameShape =
       existing.totalPages === pages &&
       existing.story === options.story.trim() &&
-      existing.stub === (options.stub ?? false);
+      existing.backend === (options.backend ?? 'huggingface');
 
     if (sameShape) {
       const counts = countPages(existing);
@@ -282,7 +180,7 @@ async function prepareState(
     mood: options.mood,
     totalPages: pages,
     batchSize: Math.max(1, Math.round(options.batchSize ?? DEFAULT_BATCH_SIZE)),
-    stub: options.stub ?? false,
+    backend: options.backend ?? 'huggingface',
     status: 'analyzing',
     createdAt: now,
     updatedAt: now,
@@ -308,13 +206,17 @@ async function prepareState(
   return state;
 }
 
-/** コマ割りをバッチ単位で判定する */
-async function analyzeLayout(
+/**
+ * バッチ単位でネーム（場面・コマ割り・セリフ）を作る。
+ *
+ * 120 ページを一度に頼むと応答が壊れるので、10 ページずつ区切って作り、
+ * 直前のページの流れを渡して話を繋げる。
+ */
+async function planPages(
   paths: BookPaths,
   state: BookJobState,
   reporter: JobReporter,
 ): Promise<void> {
-  const segments = state.pages.map((page) => page.segment);
   const total = Math.ceil(state.totalPages / state.batchSize);
 
   for (let from = 1; from <= state.totalPages; from += state.batchSize) {
@@ -322,20 +224,42 @@ async function analyzeLayout(
     const to = Math.min(state.totalPages, from + state.batchSize - 1);
     const index = Math.floor((from - 1) / state.batchSize) + 1;
 
-    if (state.stub) {
-      // 判定も課金なので、スタブでは決め打ちで散らす
+    if (state.backend === 'stub') {
+      // ネーム作成もテキストモデルを使うので、スタブでは決め打ちで散らす。
+      // 吹き出しの描画まで確かめられるよう、セリフも入れておく
       const cycle = [6, 2, 4, 8, 1, 6, 5, 3, 7, 9] as const;
       for (let n = from; n <= to; n += 1) {
-        state.pages[n - 1].panelsCount = cycle[(n - 1) % cycle.length];
+        const page = state.pages[n - 1];
+        page.panelsCount = cycle[(n - 1) % cycle.length];
+        page.dialogues = Array.from({ length: page.panelsCount }, (_, i) =>
+          i % 3 === 2 ? '' : `${n}ページ目${i + 1}コマ目のセリフ`,
+        );
       }
     } else {
-      const layout = await analyzeLayoutRange(state.story, segments, from, to);
-      for (const item of layout) {
+      // 直前の 3 ページぶんを渡して、バッチをまたいでも話が続くようにする
+      const previously = state.pages
+        .slice(Math.max(0, from - 4), from - 1)
+        .map((page) => `${page.pageNumber}ページ目: ${page.segment}`)
+        .join('\n');
+
+      const plan = await planMangaPages({
+        title: state.title,
+        story: state.story,
+        mood: state.mood,
+        from,
+        to,
+        totalPages: state.totalPages,
+        previously: previously || undefined,
+      });
+
+      for (const item of plan) {
         const page = state.pages[item.pageNumber - 1];
         if (!page) continue;
+        page.segment = item.description;
         page.panelsCount = item.panelsCount;
         page.sceneType = item.sceneType;
         page.reason = item.reason;
+        page.dialogues = item.dialogues;
       }
     }
 
@@ -345,8 +269,8 @@ async function analyzeLayout(
       page.grid = getGridLayout(page.panelsCount, 'portrait').label;
     }
 
-    record(state, 'info', `コマ割り判定: ${from}〜${to} ページ`);
-    reporter.info(`コマ割り判定 ${index}/${total}: P${from}-P${to}`);
+    record(state, 'info', `ネーム作成: ${from}〜${to} ページ`);
+    reporter.info(`ネーム作成 ${index}/${total}: P${from}-P${to}`);
     await writeJobState(paths, state);
   }
 }
@@ -388,7 +312,7 @@ export async function runBookJob(
   // コマ割り
   // ------------------------------------------------------------
   if (state.status === 'analyzing') {
-    await analyzeLayout(paths, state, reporter);
+    await planPages(paths, state, reporter);
     if (cancelRequested) {
       state.status = 'paused';
       reporter.warn('中断しました。同じコマンドで再開できます。');
@@ -430,7 +354,7 @@ export async function runBookJob(
 
         page.attempts += 1;
         try {
-          await generatePageImage(paths, state, page);
+          await generateAndSavePage(paths, state, page);
           page.status = 'done';
           page.file = `pages/${pageFileName(pageNumber)}`;
           page.error = undefined;
@@ -510,7 +434,11 @@ export async function runBookJob(
   reporter.info('PDF 生成中...');
 
   const result = await buildKindlePdf({
-    imageFiles: state.pages.map((page) => pageFile(paths, page.pageNumber)),
+    pages: state.pages.map((page) => ({
+      file: pageFile(paths, page.pageNumber),
+      panelsCount: page.panelsCount,
+      dialogues: page.dialogues,
+    })),
     outputFile: paths.pdfFile,
     onPage: (pageNumber, total) => {
       if (pageNumber % 20 === 0 || pageNumber === total) {
@@ -526,7 +454,8 @@ export async function runBookJob(
   record(
     state,
     result.withinLimit ? 'info' : 'warn',
-    `PDF 完成: ${result.pages} ページ / ${formatBytes(result.bytes)} / JPEG 画質 ${result.lowestQuality}`,
+    `PDF 完成: ${result.pages} ページ / ${formatBytes(result.bytes)} / JPEG 画質 ${result.lowestQuality}` +
+      (result.withDialogues ? ' / セリフ入り' : ''),
   );
 
   if (!result.withinLimit) {

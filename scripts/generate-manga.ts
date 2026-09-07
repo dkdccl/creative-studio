@@ -1,18 +1,22 @@
+import { config, isHuggingFaceConfigured, isOpenAIConfigured } from '@/lib/config';
+import { checkHuggingFace } from '@/lib/huggingface-api';
 import {
   DEFAULT_BATCH_SIZE,
   DEFAULT_BOOK_PAGES,
+  IMAGE_BACKENDS,
   KINDLE_DPI,
   KINDLE_PAGE_HEIGHT_PX,
   KINDLE_PAGE_WIDTH_PX,
   formatBytes,
   formatElapsed,
+  isImageBackend,
+  type ImageBackend,
 } from '@/lib/kindle-book';
 import { requestCancel, runBookJob, type JobReporter } from '@/lib/kindle-job';
 import { resolveBookPaths } from '@/lib/kindle-workspace';
-import { isOpenAIConfigured } from '@/lib/config';
 import { MANGA_MOODS, clampBookPages } from '@/lib/scene-blocks';
 
-import { readers, type ParsedArgs } from '../cli-args';
+import { readers, type ParsedArgs } from './cli-args';
 
 /**
  * 漫画モード。ストーリーを指定ページ数に割り、
@@ -34,7 +38,12 @@ export const MANGA_USAGE = `
   --batch-size=<n>   1 バッチのページ数（既定: ${DEFAULT_BATCH_SIZE}）
   --mood=<text>      雰囲気（${MANGA_MOODS.join(' / ')}）
   --output=<dir>     置き場所の差し替え（既定: ~/creative-studio-workspace/manga）
-  --stub             画像生成 API を呼ばず、コマ枠だけのダミーで通す
+  --backend=<name>   絵をどこで作るか（既定: huggingface）
+                       huggingface … Hugging Face の Inference API。1 枚 $0.005〜0.01
+                                     （HUGGINGFACE_API_KEY の設定が要る）
+                       openai      … OpenAI の画像モデル。高品質だが 1 冊で数十ドル
+                       stub        … 生成せずコマ枠だけのダミー。流れの確認用
+  --stub             --backend=stub の短い書き方
   --fresh            前回の続きを使わず最初から作り直す
 
 保存先:
@@ -93,12 +102,36 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
 
   // ストーリーを省いたときはタイトルを題材にする
   const story = text('story').trim() || title;
-  const stub = flag('stub');
 
-  if (!stub && !isOpenAIConfigured) {
-    console.error('❌ OPENAI_API_KEY が未設定です。.env.local に設定してください。');
-    console.error('   （--stub を付けると API を呼ばずに動きだけ確かめられます）');
+  const requested = flag('stub') ? 'stub' : text('backend', 'huggingface');
+  if (!isImageBackend(requested)) {
+    console.error(
+      `❌ 知らない backend です: ${requested}（${IMAGE_BACKENDS.join(' / ')}）`,
+    );
     return 1;
+  }
+  const backend: ImageBackend = requested;
+
+  // コマ割りの判定はどの backend でもテキストモデルを使う（stub を除く）
+  if (backend !== 'stub' && !isOpenAIConfigured) {
+    console.error('❌ OPENAI_API_KEY が未設定です。.env.local に設定してください。');
+    console.error('   （コマ割りの判定にテキストモデルを使います）');
+    console.error('   --stub を付けると API を呼ばずに動きだけ確かめられます。');
+    return 1;
+  }
+
+  if (backend === 'huggingface') {
+    if (!isHuggingFaceConfigured) {
+      console.error('❌ HUGGINGFACE_API_KEY が未設定です。');
+      console.error('   https://huggingface.co/settings/tokens で取得して .env.local に書いてください。');
+      return 1;
+    }
+    // 120 ページ流し始めてから 401 で全滅しないよう、小さい絵を 1 枚試す
+    process.stdout.write('🤗 Hugging Face を確認中… ');
+    const health = await checkHuggingFace();
+    console.log(health.ok ? 'OK' : 'NG');
+    console.log(`   ${health.detail}`);
+    if (!health.ok) return 1;
   }
 
   const totalPages = clampBookPages(number('pages', DEFAULT_BOOK_PAGES));
@@ -120,7 +153,14 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
     `   ページ規格 : ${KINDLE_PAGE_WIDTH_PX}×${KINDLE_PAGE_HEIGHT_PX}px / ${KINDLE_DPI}DPI (Kindle)`,
   );
   console.log(`   保存先     : ${paths.baseDir}`);
-  if (stub) console.log('   モード     : スタブ（画像生成 API を呼びません）');
+  console.log(
+    `   画像生成   : ${backend}` +
+      (backend === 'huggingface'
+        ? `（${config.huggingface.model}）`
+        : backend === 'stub'
+          ? '（生成せずコマ枠だけのダミー）'
+          : ''),
+  );
   console.log('');
 
   // Ctrl+C は今のページを描き終えてから止める。
@@ -145,7 +185,7 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
       mood: text('mood', MANGA_MOODS[0]),
       totalPages,
       batchSize,
-      stub,
+      backend,
       fresh: flag('fresh'),
       baseDir,
     },

@@ -656,6 +656,12 @@ export interface MangaPromptOptions {
    * 単行本は縦長ページなので 'portrait' を渡す。
    */
   orientation?: PageOrientation;
+  /**
+   * このページで描く場面。
+   * 渡さなければ story をページ数で割った断片を使う。
+   * 単行本では AI が組んだネームをここに入れる。
+   */
+  segment?: string;
   /** 吹き出しやオノマトペの言語。既定は日本語 */
   language?: string;
   /**
@@ -680,6 +686,7 @@ export function buildMangaGenerationPrompt({
   mood,
   sceneType,
   orientation = 'landscape',
+  segment: givenSegment,
   language = '日本語',
   withoutText = false,
 }: MangaPromptOptions): string {
@@ -687,7 +694,10 @@ export function buildMangaGenerationPrompt({
   const current = Math.min(Math.max(1, Math.round(pageNumber) || 1), pages);
   const panels = normalizePanelCount(panelsCount);
   const grid = getGridLayout(panels, orientation);
-  const segment = splitStoryByPages(story, pages)[current - 1] ?? story.trim();
+  const segment =
+    givenSegment?.trim() ||
+    splitStoryByPages(story, pages)[current - 1] ||
+    story.trim();
 
   // セリフをあとから重ねる場合は、絵の中に文字を描かせない
   const textRule = withoutText
