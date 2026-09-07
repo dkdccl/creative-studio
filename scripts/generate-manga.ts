@@ -43,6 +43,11 @@ export const MANGA_USAGE = `
                                      （HUGGINGFACE_API_KEY の設定が要る）
                        openai      … OpenAI の画像モデル。高品質だが 1 冊で数十ドル
                        stub        … 生成せずコマ枠だけのダミー。流れの確認用
+  --page-mode=<name> ページの作り方（既定: panel）
+                       panel … コマを 1 つずつ描いて組版する。
+                               コマ数どおりになり、吹き出しもぴたりと合う
+                       whole … ページ丸ごと 1 枚。速くて安いが
+                               コマ数の指示はまず守られない
   --stub             --backend=stub の短い書き方
   --fresh            前回の続きを使わず最初から作り直す
 
@@ -69,6 +74,12 @@ function createReporter(startedAt: number): JobReporter {
     },
     // 1 枚に数十秒かかるので、取りかかった時点で出す。
     // 待ち時間の長い作業なので、終わってからでは遅い
+    // コマ 1 つが終わるたびに同じ行を書き換える（1 ページで最大 9 回）
+    panel: (pageNumber, index, total) => {
+      process.stdout.write(
+        `        コマ ${index}/${total} (P${pageNumber})          `,
+      );
+    },
     pageStart: (pageNumber, total, page) => {
       const scene = page.sceneType ? ` ${page.sceneType}` : '';
       console.log(
@@ -79,6 +90,8 @@ function createReporter(startedAt: number): JobReporter {
     },
     // うまくいったページは pageStart で出しているので、ここは失敗だけ
     page: (pageNumber, total, page) => {
+      // コマの進捗行を消す
+      process.stdout.write(`${' '.repeat(40)}`);
       if (page.status === 'done') return;
       console.log(
         `   [${String(pageNumber).padStart(3, ' ')}/${total}] ❌ 未完成` +
@@ -148,6 +161,12 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
     1,
     Math.round(number('batch-size', DEFAULT_BATCH_SIZE)),
   );
+  const pageMode = text('page-mode', 'panel').toLowerCase();
+  if (pageMode !== 'panel' && pageMode !== 'whole') {
+    console.error(`❌ 知らない page-mode です: ${pageMode}（panel / whole）`);
+    return 1;
+  }
+
   const baseDir = text('output') || undefined;
   const paths = resolveBookPaths({ title, totalPages, baseDir });
   const startedAt = Date.now();
@@ -162,6 +181,13 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
     `   ページ規格 : ${KINDLE_PAGE_WIDTH_PX}×${KINDLE_PAGE_HEIGHT_PX}px / ${KINDLE_DPI}DPI (Kindle)`,
   );
   console.log(`   保存先     : ${paths.baseDir}`);
+  console.log(
+    `   作り方     : ${
+      pageMode === 'panel'
+        ? 'コマ単位（1 コマ = 1 枚を生成して組版）'
+        : 'ページ丸ごと 1 枚'
+    }`,
+  );
   console.log(
     `   画像生成   : ${backend}` +
       (backend === 'huggingface'
@@ -195,6 +221,7 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
       totalPages,
       batchSize,
       backend,
+      pageMode,
       fresh: flag('fresh'),
       baseDir,
     },
@@ -209,6 +236,7 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
     );
     console.log(`   ページ画像 : ${paths.pagesDir}`);
     console.log(`   メタデータ : ${paths.metadataFile}`);
+    console.log(`   生成枚数   : ${result.state.imagesGenerated ?? '-'} 枚`);
     console.log(`   所要時間   : ${formatElapsed(Date.now() - startedAt)}`);
     // 50MB を超えていたら state.error に理由が入る
     return result.state.error ? 1 : 0;
@@ -216,6 +244,13 @@ export async function runMangaMode({ flags }: ParsedArgs): Promise<number> {
 
   if (result.status === 'paused') {
     console.log(`   保存先     : ${paths.baseDir}`);
+  console.log(
+    `   作り方     : ${
+      pageMode === 'panel'
+        ? 'コマ単位（1 コマ = 1 枚を生成して組版）'
+        : 'ページ丸ごと 1 枚'
+    }`,
+  );
     console.log('   同じコマンドをもう一度実行すると続きから再開します。');
     return 130;
   }

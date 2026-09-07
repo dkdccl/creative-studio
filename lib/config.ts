@@ -73,7 +73,19 @@ export const config = {
     /** 絵に出したくないもの */
     negativePrompt:
       resolve(process.env.HUGGINGFACE_NEGATIVE_PROMPT) ??
-      'lowres, bad anatomy, bad hands, text, watermark, signature, blurry, jpeg artifacts',
+      [
+        // 品質
+        'lowres, blurry, jpeg artifacts, worst quality, sketch, unfinished',
+        // 人体の破綻
+        'bad anatomy, bad hands, extra fingers, missing fingers, extra limbs, ' +
+          'malformed limbs, deformed face, distorted face, disconnected body parts',
+        // 画面のノイズ
+        'floating objects, cluttered composition, duplicate characters',
+        // 文字（セリフは PDF 側で入れる）
+        'text, letters, japanese text, speech bubble, caption, watermark, signature, logo',
+        // 白黒漫画にしたいので
+        'color, colored, photo, 3d render',
+      ].join(', '),
   },
   stability: {
     apiKey: resolve(process.env.STABILITY_API_KEY),

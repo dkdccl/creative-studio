@@ -14,8 +14,12 @@ import {
   type BookLogEvent,
   type BookPageState,
   type ImageBackend,
+  type PageMode,
 } from '@/lib/kindle-book';
-import { generatePageImage } from '@/lib/image-processor';
+import {
+  generateComposedPage,
+  generatePageImage,
+} from '@/lib/image-processor';
 import { planMangaPages, planStoryOutline } from '@/lib/openai-client';
 import { buildKindlePdf } from '@/lib/pdf-generator';
 import {
@@ -77,6 +81,8 @@ export interface JobReporter {
   batch(index: number, total: number, from: number, to: number): void;
   /** ページ 1 枚に取りかかるとき */
   pageStart(pageNumber: number, total: number, state: BookPageState): void;
+  /** コマ 1 つが終わったとき（コマ単位生成のとき） */
+  panel(pageNumber: number, index: number, total: number): void;
   /** ページ 1 枚が終わったとき */
   page(pageNumber: number, total: number, state: BookPageState): void;
 }
@@ -97,12 +103,37 @@ function record(
 // ページ画像
 // ---------------------------------------------------------------
 
-/** 1 ページぶんの画像を作って保存する。失敗したら投げる */
+/**
+ * 1 ページぶんの画像を作って保存する。失敗したら投げる。
+ *
+ * 既定はコマ単位。画像モデルは「6 コマに割って」という指示をまず守らず、
+ * ページ丸ごと頼むとコマ数も中身も当てにならない。
+ * コマを 1 つずつ「別々の絵」として描かせ、枠と余白はこちらで引くと
+ * 狙ったコマ数になり、吹き出しの位置もぴたりと合う。
+ */
 async function generateAndSavePage(
   paths: BookPaths,
   state: BookJobState,
   page: BookPageState,
+  reporter: JobReporter,
 ): Promise<void> {
+  const perPanel =
+    state.pageMode !== 'whole' && (page.panelPrompts?.length ?? 0) > 0;
+
+  if (perPanel) {
+    const bytes = await generateComposedPage({
+      backend: state.backend,
+      panelsCount: page.panelsCount,
+      panelPrompts: page.panelPrompts as string[],
+      onPanel: (index, total) =>
+        reporter.panel(page.pageNumber, index, total),
+    });
+    state.imagesGenerated = (state.imagesGenerated ?? 0) + page.panelsCount;
+    await savePageImage(paths, page.pageNumber, bytes);
+    return;
+  }
+
+  // ページ丸ごと 1 枚（--page-mode=whole）。
   // Stable Diffusion 系は日本語をほとんど解さないので英語で渡す。
   // OpenAI の画像モデルは日本語のほうが場面を汲んでくれる。
   const prompt =
@@ -130,6 +161,7 @@ async function generateAndSavePage(
     prompt,
     page,
   });
+  state.imagesGenerated = (state.imagesGenerated ?? 0) + 1;
 
   await savePageImage(paths, page.pageNumber, bytes);
 }
@@ -146,6 +178,8 @@ export interface BookJobOptions {
   batchSize?: number;
   /** 絵をどこで作るか。既定は huggingface */
   backend?: ImageBackend;
+  /** コマ単位で作るか、ページ丸ごと 1 枚か。既定は panel */
+  pageMode?: PageMode;
   /** 前回の続きを使わず、最初から作り直す */
   fresh?: boolean;
   /** 置き場所を差し替えたいとき（既定は ~/creative-studio-workspace/manga） */
@@ -168,7 +202,8 @@ async function prepareState(
     const sameShape =
       existing.totalPages === pages &&
       existing.story === options.story.trim() &&
-      existing.backend === (options.backend ?? 'huggingface');
+      existing.backend === (options.backend ?? 'huggingface') &&
+      existing.pageMode === (options.pageMode ?? 'panel');
 
     if (sameShape) {
       const counts = countPages(existing);
@@ -193,6 +228,7 @@ async function prepareState(
     totalPages: pages,
     batchSize: Math.max(1, Math.round(options.batchSize ?? DEFAULT_BATCH_SIZE)),
     backend: options.backend ?? 'huggingface',
+    pageMode: options.pageMode ?? 'panel',
     status: 'analyzing',
     createdAt: now,
     updatedAt: now,
@@ -288,6 +324,8 @@ async function planPages(
         if (!page) continue;
         page.segment = item.description;
         page.imagePrompt = item.imagePrompt;
+        page.isKeyMoment = item.isKeyMoment;
+        page.panelPrompts = item.panelPrompts;
         page.panelsCount = item.panelsCount;
         page.sceneType = item.sceneType;
         page.reason = item.reason;
@@ -388,7 +426,7 @@ export async function runBookJob(
 
         page.attempts += 1;
         try {
-          await generateAndSavePage(paths, state, page);
+          await generateAndSavePage(paths, state, page, reporter);
           page.status = 'done';
           page.file = `pages/${pageFileName(pageNumber)}`;
           page.error = undefined;
