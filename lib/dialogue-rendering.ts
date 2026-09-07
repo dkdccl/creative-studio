@@ -1,4 +1,4 @@
-import { getGridLayout, normalizePanelCount, type PanelCount } from '@/lib/scene-blocks';
+import { getGridShape, normalizePanelCount, type PanelCount } from '@/lib/scene-blocks';
 
 /**
  * 生成済みの漫画画像に、あとからセリフを吹き出しで描き込む。
@@ -159,46 +159,36 @@ function detectPanelRects(
     return profile;
   };
 
-  if (panels === 5) {
-    // 上 2 段が 2 列、最下段だけ横いっぱい。
-    // 列の隙間は下段には無いので、上 2 段だけを見て列を割り出す
-    const rowBands = splitBands(rowProfile(), height, 3);
-    if (!rowBands) return null;
-    const colBands = splitBands(
-      columnProfile(rowBands[0][0], rowBands[1][1]),
-      width,
-      2,
-    );
-    if (!colBands) return null;
+  const { columns, rows, gridRows, hasWideLastPanel } = getGridShape(
+    normalizePanelCount(panels),
+  );
 
-    const rects: PanelRect[] = [];
-    for (const [y0, y1] of rowBands.slice(0, 2)) {
-      for (const [x0, x1] of colBands) {
-        rects.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
-      }
-    }
-    const [by0, by1] = rowBands[2];
-    rects.push({
-      x: colBands[0][0],
-      y: by0,
-      w: colBands[1][1] - colBands[0][0],
-      h: by1 - by0,
-    });
-    return rects;
-  }
-
-  const { columns, rows } = getGridLayout(normalizePanelCount(panels));
   const rowBands = splitBands(rowProfile(), height, rows);
   if (!rowBands) return null;
-  const colBands = splitBands(columnProfile(0, height - 1), width, columns);
+
+  // 最下段が横いっぱいの大ゴマのときは、その行に列の隙間が無い。
+  // 格子になっている行だけを見て列を割り出す。
+  const colBands = splitBands(
+    columnProfile(rowBands[0][0], rowBands[gridRows - 1][1]),
+    width,
+    columns,
+  );
   if (!colBands) return null;
 
   const rects: PanelRect[] = [];
-  for (const [y0, y1] of rowBands) {
+  for (const [y0, y1] of rowBands.slice(0, gridRows)) {
     for (const [x0, x1] of colBands) {
       rects.push({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
     }
   }
+
+  if (hasWideLastPanel) {
+    const [y0, y1] = rowBands[rows - 1];
+    const left = colBands[0][0];
+    const right = colBands[colBands.length - 1][1];
+    rects.push({ x: left, y: y0, w: right - left, h: y1 - y0 });
+  }
+
   return rects;
 }
 
@@ -219,38 +209,34 @@ export function getPanelRects(
   const innerW = width - margin * 2;
   const innerH = height - margin * 2;
 
-  const gridRects = (cols: number, rows: number, rowCount = rows): PanelRect[] => {
-    const cellW = (innerW - gutter * (cols - 1)) / cols;
-    const cellH = (innerH - gutter * (rowCount - 1)) / rowCount;
-    const rects: PanelRect[] = [];
-    for (let r = 0; r < rows; r += 1) {
-      for (let c = 0; c < cols; c += 1) {
-        rects.push({
-          x: margin + c * (cellW + gutter),
-          y: margin + r * (cellH + gutter),
-          w: cellW,
-          h: cellH,
-        });
-      }
-    }
-    return rects;
-  };
+  const { columns, rows, gridRows, hasWideLastPanel } = getGridShape(panels);
 
-  if (panels === 5) {
-    // 2×2 の 4 コマ + 最下段に横いっぱいの大ゴマ 1 つ
-    const rects = gridRects(2, 2, 3);
-    const cellH = (innerH - gutter * 2) / 3;
+  const cellW = (innerW - gutter * (columns - 1)) / columns;
+  const cellH = (innerH - gutter * (rows - 1)) / rows;
+
+  const rects: PanelRect[] = [];
+  for (let r = 0; r < gridRows; r += 1) {
+    for (let c = 0; c < columns; c += 1) {
+      rects.push({
+        x: margin + c * (cellW + gutter),
+        y: margin + r * (cellH + gutter),
+        w: cellW,
+        h: cellH,
+      });
+    }
+  }
+
+  // 最下段だけ横いっぱいの大ゴマ（5 コマ・7 コマ）
+  if (hasWideLastPanel) {
     rects.push({
       x: margin,
-      y: margin + 2 * (cellH + gutter),
+      y: margin + gridRows * (cellH + gutter),
       w: innerW,
       h: cellH,
     });
-    return rects;
   }
 
-  const { columns, rows } = getGridLayout(panels);
-  return gridRects(columns, rows);
+  return rects;
 }
 
 // ------------------------------------------------------------------

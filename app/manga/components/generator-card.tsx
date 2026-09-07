@@ -6,12 +6,14 @@ import {
   MANGA_MOODS,
   MANGA_PAGE_OPTIONS,
   PANEL_COUNT_OPTIONS,
+  SCENE_TYPE_EMOJI,
   defaultPageConfigs,
   getGridLayout,
   normalizePanelCount,
   resizePageConfigs,
   type PageConfig,
   type PanelCount,
+  type SceneType,
 } from '@/lib/scene-blocks';
 import { drawDialoguesOnImage } from '@/lib/dialogue-rendering';
 
@@ -22,11 +24,27 @@ export interface MangaPage {
   prompt: string;
   /** コマ順のセリフ。gpt-5.5 で生成したときだけ入る */
   dialogues?: string[];
+  /** AI 自動コマ割りで判定した場面の種類 */
+  sceneType?: SceneType;
 }
 
 interface GenerateResponse {
   pages?: MangaPage[];
   error?: string;
+}
+
+interface AnalyzeResponse {
+  layout?: PageConfig[];
+  error?: string;
+}
+
+/** 「💬 会話 · 6コマ (3×2)」の形のラベル */
+function layoutLabel(config: PageConfig): string {
+  const grid = getGridLayout(config.panelsCount);
+  const scene = config.sceneType
+    ? `${SCENE_TYPE_EMOJI[config.sceneType]} ${config.sceneType} · `
+    : '';
+  return `${scene}${config.panelsCount}コマ (${grid.label})`;
 }
 
 /**
@@ -60,8 +78,13 @@ export function GeneratorCard() {
   );
   const [mood, setMood] = useState<string>(MANGA_MOODS[0]);
   const [useGPT55, setUseGPT55] = useState(true);
+  /** AI にコマ割りを任せるか。切ると上の手動選択が有効になる */
+  const [autoLayout, setAutoLayout] = useState(true);
+  /** AI が決めたページごとのコマ割り。生成のたびに作り直す */
+  const [sceneLayout, setSceneLayout] = useState<PageConfig[] | null>(null);
 
   const [generating, setGenerating] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [currentPage, setCurrentPage] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewPages, setPreviewPages] = useState<MangaPage[]>([]);
@@ -71,6 +94,8 @@ export function GeneratorCard() {
     setPages(next);
     // 選択済みのコマ数は引き継ぐ
     setPageConfigs((current) => resizePageConfigs(current, next));
+    // ページ数が変わると前回の判定結果は当てにならない
+    setSceneLayout(null);
   };
 
   const changePanelsCount = (pageNumber: number, panelsCount: PanelCount) => {
@@ -94,6 +119,44 @@ export function GeneratorCard() {
     }
   };
 
+  /**
+   * ストーリーを AI に読ませて、ページごとのコマ割りを決めてもらう。
+   * 判定できなければ null を返し、呼び出し側で生成を止める。
+   */
+  const analyzeLayout = async (): Promise<PageConfig[] | null> => {
+    setAnalyzing(true);
+    setSceneLayout(null);
+    try {
+      const response = await fetch('/api/manga/analyze-scene', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ story, pages }),
+      });
+      const data = (await response.json()) as AnalyzeResponse;
+
+      if (!response.ok || !data.layout?.length) {
+        setError(data.error ?? 'コマ割りを判定できませんでした。');
+        return null;
+      }
+
+      // 想定より少ない・多いページが返っても崩れないよう長さを揃える
+      const layout = Array.from({ length: pages }, (_, i) => {
+        const found = data.layout?.find((c) => c.pageNumber === i + 1);
+        return {
+          pageNumber: i + 1,
+          panelsCount: normalizePanelCount(found?.panelsCount),
+          sceneType: found?.sceneType,
+          reason: found?.reason,
+        };
+      });
+
+      setSceneLayout(layout);
+      return layout;
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const generate = async () => {
     if (!story.trim()) {
       setError('ストーリーを入力してください。');
@@ -107,6 +170,11 @@ export function GeneratorCard() {
     const collected: MangaPage[] = [];
 
     try {
+      // AI 自動コマ割りのときは、絵を作る前にコマ割りを決めてしまう。
+      // ページごとに判定すると前後のつながりが見えず、緩急がつかないため。
+      const configs = autoLayout ? await analyzeLayout() : pageConfigs;
+      if (!configs) return;
+
       for (let pageNumber = 1; pageNumber <= pages; pageNumber += 1) {
         setCurrentPage(pageNumber);
 
@@ -117,7 +185,7 @@ export function GeneratorCard() {
             story,
             pages,
             mood,
-            pageConfigs,
+            pageConfigs: configs,
             pageNumber,
             useGPT55,
           }),
@@ -183,8 +251,7 @@ export function GeneratorCard() {
               />
               <figcaption className="mt-1.5 flex items-center justify-between text-xs text-white/40">
                 <span>
-                  ページ {page.pageNumber}・{page.panelsCount}コマ (
-                  {getGridLayout(page.panelsCount).label})
+                  ページ {page.pageNumber}・{layoutLabel(page)}
                 </span>
                 <button
                   type="button"
@@ -250,38 +317,89 @@ export function GeneratorCard() {
         </div>
       </div>
 
-      <div>
-        <p className="mb-2 text-sm font-bold text-red-50">各ページのコマ数</p>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-          {pageConfigs.map((config) => (
-            <div key={config.pageNumber} className="flex flex-col items-center">
-              <span className="mb-1 text-xs font-bold text-white/50">
-                P{config.pageNumber}
-              </span>
-              <select
-                aria-label={`ページ ${config.pageNumber} のコマ数`}
-                value={config.panelsCount}
-                onChange={(e) =>
-                  changePanelsCount(
-                    config.pageNumber,
-                    normalizePanelCount(e.target.value),
-                  )
-                }
-                className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 text-center text-sm text-white focus:border-red-400 focus:outline-none"
-              >
-                {PANEL_COUNT_OPTIONS.map((count) => (
-                  <option key={count} value={count}>
-                    {count}コマ
-                  </option>
+      <div className="space-y-3">
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-50">
+          <input
+            type="checkbox"
+            checked={autoLayout}
+            onChange={(e) => setAutoLayout(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-amber-400"
+          />
+          <span>
+            🤖 AI 自動コマ割り
+            <span className="mt-1 block text-xs font-normal text-amber-100/60">
+              ストーリーを読んで場面の種類（感動・会話・アクション・景色・表情）を判定し、
+              実際の漫画のようにページごとのコマ数を決めます。
+              山場は大ゴマ、会話やアクションは細かいコマになります。
+            </span>
+          </span>
+        </label>
+
+        {autoLayout ? (
+          sceneLayout && (
+            <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+              <p className="mb-2 text-xs font-bold text-white/50">
+                AI が決めたコマ割り
+              </p>
+              <ul className="space-y-1.5">
+                {sceneLayout.map((config) => (
+                  <li
+                    key={config.pageNumber}
+                    className="flex items-baseline gap-2 text-xs text-white/70"
+                  >
+                    <span className="w-7 shrink-0 font-bold text-white/40">
+                      P{config.pageNumber}
+                    </span>
+                    <span className="font-bold text-white/90">
+                      {layoutLabel(config)}
+                    </span>
+                    {config.reason && (
+                      <span className="text-white/40">{config.reason}</span>
+                    )}
+                  </li>
                 ))}
-              </select>
+              </ul>
             </div>
-          ))}
-        </div>
-        <p className="mt-2 text-xs text-white/40">
-          総コマ数{' '}
-          {pageConfigs.reduce((sum, config) => sum + config.panelsCount, 0)}コマ
-        </p>
+          )
+        ) : (
+          <div>
+            <p className="mb-2 text-sm font-bold text-red-50">各ページのコマ数</p>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+              {pageConfigs.map((config) => (
+                <div
+                  key={config.pageNumber}
+                  className="flex flex-col items-center"
+                >
+                  <span className="mb-1 text-xs font-bold text-white/50">
+                    P{config.pageNumber}
+                  </span>
+                  <select
+                    aria-label={`ページ ${config.pageNumber} のコマ数`}
+                    value={config.panelsCount}
+                    onChange={(e) =>
+                      changePanelsCount(
+                        config.pageNumber,
+                        normalizePanelCount(e.target.value),
+                      )
+                    }
+                    className="w-full rounded-lg border border-white/15 bg-black/40 px-2 py-1.5 text-center text-sm text-white focus:border-red-400 focus:outline-none"
+                  >
+                    {PANEL_COUNT_OPTIONS.map((count) => (
+                      <option key={count} value={count}>
+                        {count}コマ
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-white/40">
+              総コマ数{' '}
+              {pageConfigs.reduce((sum, config) => sum + config.panelsCount, 0)}
+              コマ
+            </p>
+          </div>
+        )}
       </div>
 
       <div>
@@ -336,9 +454,11 @@ export function GeneratorCard() {
         disabled={generating || story.trim().length === 0}
         className="w-full rounded-xl border-2 border-red-600 bg-gradient-to-br from-[#EF4444] to-[#DC2626] px-6 py-3.5 text-base font-bold text-white transition-all hover:border-red-400 hover:from-red-400 hover:to-red-500 hover:shadow-[0_0_30px_-8px_rgba(239,68,68,0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {generating
-          ? `ページ ${currentPage ?? 1}/${pages} 生成中…`
-          : '漫画を生成'}
+        {analyzing
+          ? '🤖 コマ割りを分析中…'
+          : generating
+            ? `ページ ${currentPage ?? 1}/${pages} 生成中…`
+            : '漫画を生成'}
       </button>
 
       {generating && (

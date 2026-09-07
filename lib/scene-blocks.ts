@@ -151,10 +151,16 @@ export const PANEL_GRID_CLASS = 'grid-cols-3';
 // コマ数（漫画モードはページごとに 4 / 5 / 6 から選べる）
 // ---------------------------------------------------------------
 
-export type PanelCount = 4 | 5 | 6;
+/**
+ * 1 ページのコマ数。
+ *
+ * 実際の漫画に合わせて 1 コマ（見開きの大ゴマ）から 9 コマ（細かい会話・アクション）
+ * まで振れるようにしてある。AI 自動コマ割りはこの範囲から選ぶ。
+ */
+export type PanelCount = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 /** ページごとに選べるコマ数 */
-export const PANEL_COUNT_OPTIONS: PanelCount[] = [4, 5, 6];
+export const PANEL_COUNT_OPTIONS: PanelCount[] = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /** 選択がないときのコマ数 */
 export const DEFAULT_PANEL_COUNT: PanelCount = 6;
@@ -178,6 +184,34 @@ export interface GridLayout {
 /** コマ数からコマ割りの形を決める */
 export function getGridLayout(panelsCount: PanelCount): GridLayout {
   switch (panelsCount) {
+    case 1:
+      return {
+        columns: 1,
+        rows: 1,
+        label: '1コマ',
+        description:
+          'ページ全体を 1 つの大きなコマとして使う。見開きの大ゴマのように、余白なく画面いっぱいに描く',
+        gridClass: 'grid-cols-1',
+        hasWideLastPanel: false,
+      };
+    case 2:
+      return {
+        columns: 1,
+        rows: 2,
+        label: '1×2',
+        description: '横幅いっぱいの横長のコマを、上下に 2 つ積む',
+        gridClass: 'grid-cols-1',
+        hasWideLastPanel: false,
+      };
+    case 3:
+      return {
+        columns: 1,
+        rows: 3,
+        label: '1×3',
+        description: '横幅いっぱいの横長のコマを、上から下へ 3 段積む',
+        gridClass: 'grid-cols-1',
+        hasWideLastPanel: false,
+      };
     case 4:
       return {
         columns: 2,
@@ -197,6 +231,34 @@ export function getGridLayout(panelsCount: PanelCount): GridLayout {
         gridClass: 'grid-cols-2',
         hasWideLastPanel: true,
       };
+    case 7:
+      return {
+        columns: 3,
+        rows: 3,
+        label: '3×2+1',
+        description:
+          '上段と中段は 3 列 × 2 行の 6 コマ、その下に横幅いっぱいの大きなコマを 1 つ置いて合計 7 コマにする',
+        gridClass: 'grid-cols-3',
+        hasWideLastPanel: true,
+      };
+    case 8:
+      return {
+        columns: 4,
+        rows: 2,
+        label: '4×2',
+        description: '4 列 × 2 行に、同じ大きさの細かいコマを 8 つ並べる',
+        gridClass: 'grid-cols-4',
+        hasWideLastPanel: false,
+      };
+    case 9:
+      return {
+        columns: 3,
+        rows: 3,
+        label: '3×3',
+        description: '3 列 × 3 行に、同じ大きさの細かいコマを 9 つ並べる',
+        gridClass: 'grid-cols-3',
+        hasWideLastPanel: false,
+      };
     case 6:
     default:
       return {
@@ -210,7 +272,33 @@ export function getGridLayout(panelsCount: PanelCount): GridLayout {
   }
 }
 
-/** 想定外の値が来ても 4/5/6 のどれかに落とす */
+/**
+ * コマ割りを「格子の部分」と「最下段の大ゴマ」に分けた形。
+ *
+ * 5 コマ・7 コマは最下段だけ横いっぱいの大ゴマなので、
+ * 吹き出しの配置でもプレビューでもこの分け方が要る。
+ */
+export interface GridShape {
+  columns: number;
+  /** 大ゴマを含めた行数 */
+  rows: number;
+  /** 格子として並ぶ行数（大ゴマの行を除いた数） */
+  gridRows: number;
+  hasWideLastPanel: boolean;
+}
+
+/** コマ数から格子の形を出す */
+export function getGridShape(panelsCount: PanelCount): GridShape {
+  const { columns, rows, hasWideLastPanel } = getGridLayout(panelsCount);
+  return {
+    columns,
+    rows,
+    gridRows: hasWideLastPanel ? rows - 1 : rows,
+    hasWideLastPanel,
+  };
+}
+
+/** 想定外の値が来ても 1〜9 のどれかに落とす */
 export function normalizePanelCount(value: unknown): PanelCount {
   const n = Math.round(Number(value));
   return (PANEL_COUNT_OPTIONS as number[]).includes(n)
@@ -218,9 +306,117 @@ export function normalizePanelCount(value: unknown): PanelCount {
     : DEFAULT_PANEL_COUNT;
 }
 
+// ---------------------------------------------------------------
+// シーン種別（AI 自動コマ割り）
+// ---------------------------------------------------------------
+
+/**
+ * ストーリーの場面の種類。
+ * 実際の漫画と同じで、場面の性質がそのままコマの大きさ・数になる。
+ */
+export const SCENE_TYPES = ['感動', '会話', 'アクション', '景色', '表情'] as const;
+
+export type SceneType = (typeof SCENE_TYPES)[number];
+
+/** 判定できなかったときのシーン種別 */
+export const DEFAULT_SCENE_TYPE: SceneType = '会話';
+
+/** シーン種別ごとの既定のコマ数 */
+export const SCENE_FRAME_COUNTS: Record<SceneType, PanelCount> = {
+  感動: 1, // 見開きの大ゴマで魅せる
+  会話: 6, // 細かく割ってテンポを出す
+  アクション: 8, // 動きの連続を刻む
+  景色: 2, // 背景を大きく見せる
+  表情: 4, // 中くらいのコマで感情を追う
+};
+
+/**
+ * シーン種別ごとに許すコマ数の幅。
+ * AI が返した推奨コマ数がこの範囲に収まっていればそちらを優先し、
+ * 外れていたら SCENE_FRAME_COUNTS の既定値に落とす。
+ */
+export const SCENE_FRAME_RANGES: Record<SceneType, [PanelCount, PanelCount]> = {
+  感動: [1, 2],
+  会話: [6, 8],
+  アクション: [7, 9],
+  景色: [1, 3],
+  表情: [3, 5],
+};
+
+/** UI とプロンプトで使う、シーン種別の短い説明 */
+export const SCENE_TYPE_DESCRIPTIONS: Record<SceneType, string> = {
+  感動: '感動・物語の山場。大ゴマ 1〜2 コマで見せる',
+  会話: '会話のやりとり。6〜8 コマに細かく割る',
+  アクション: '動き・戦い。7〜9 コマで連続させる',
+  景色: '景色・情景描写。1〜3 コマの大きなコマで見せる',
+  表情: 'キャラの表情アップ。3〜5 コマで感情を追う',
+};
+
+/** 画像プロンプトに足す、場面ごとの演出指示 */
+export const SCENE_DIRECTION_RULES: Record<SceneType, string> = {
+  感動:
+    '物語の山場なので、引きの構図で大きく見せ、背景や効果線で感情を強調すること。',
+  会話:
+    '人物のやりとりが中心。バストアップと切り返しを混ぜ、コマを細かく割ってテンポを出すこと。',
+  アクション:
+    '動きの連続を見せる。アングルを変え、効果線・スピード線・大きな動作で勢いを出すこと。',
+  景色:
+    '情景そのものを見せる。人物は小さく、または入れず、背景を丁寧に描き込むこと。',
+  表情:
+    'キャラクターの表情のアップが中心。顔の寄りを多くし、目や口の描き分けで感情を伝えること。',
+};
+
+/** UI 用の絵文字 */
+export const SCENE_TYPE_EMOJI: Record<SceneType, string> = {
+  感動: '💫',
+  会話: '💬',
+  アクション: '💥',
+  景色: '🏞️',
+  表情: '😶',
+};
+
+/** 想定外の値が来てもシーン種別のどれかに落とす */
+export function normalizeSceneType(value: unknown): SceneType {
+  const text = String(value ?? '').trim();
+  return (SCENE_TYPES as readonly string[]).includes(text)
+    ? (text as SceneType)
+    : DEFAULT_SCENE_TYPE;
+}
+
+/** シーン種別からコマ数を決める */
+export function getAutoFrameCount(sceneType: SceneType): PanelCount {
+  return SCENE_FRAME_COUNTS[normalizeSceneType(sceneType)];
+}
+
+/**
+ * AI が返した推奨コマ数を採用するか決める。
+ *
+ * シーン種別に対して極端な数（会話なのに 1 コマ等）を返してくることがあるので、
+ * 種別ごとの範囲に収まっているときだけ採用し、外れていれば既定値に落とす。
+ */
+export function resolveFrameCount(
+  sceneType: SceneType,
+  recommendedFrames: unknown,
+): PanelCount {
+  const type = normalizeSceneType(sceneType);
+  const [min, max] = SCENE_FRAME_RANGES[type];
+  const n = Math.round(Number(recommendedFrames));
+  if (Number.isFinite(n) && n >= min && n <= max) {
+    return normalizePanelCount(n);
+  }
+  return getAutoFrameCount(type);
+}
+
 export interface PageConfig {
   pageNumber: number;
   panelsCount: PanelCount;
+  /**
+   * AI 自動コマ割りで判定した場面の種類。
+   * 手動でコマ数を選んだときは入らない。
+   */
+  sceneType?: SceneType;
+  /** そのコマ数にした理由（AI 判定のときだけ） */
+  reason?: string;
 }
 
 /** 全ページを既定のコマ数にした設定を作る */
@@ -379,6 +575,11 @@ export interface MangaPromptOptions {
   /** このページのコマ数。4 / 5 / 6 から選ぶ */
   panelsCount: PanelCount;
   mood: string;
+  /**
+   * AI 自動コマ割りで判定した場面の種類。
+   * 渡すと「大ゴマで魅せる」「細かく刻む」といった演出の指示も一緒に入る。
+   */
+  sceneType?: SceneType;
   /** 吹き出しやオノマトペの言語。既定は日本語 */
   language?: string;
   /**
@@ -401,6 +602,7 @@ export function buildMangaGenerationPrompt({
   totalPages,
   panelsCount,
   mood,
+  sceneType,
   language = '日本語',
   withoutText = false,
 }: MangaPromptOptions): string {
@@ -419,12 +621,20 @@ export function buildMangaGenerationPrompt({
       ].join('')
     : null;
 
+  // 場面の種類が分かっているときは、コマ数の意図まで伝えて演出を寄せる
+  const sceneRule = sceneType
+    ? `このページの場面: ${sceneType}（${SCENE_TYPE_DESCRIPTIONS[sceneType]}）。${SCENE_DIRECTION_RULES[sceneType]}`
+    : null;
+
   return [
     `${language}の漫画。ページ ${current} / 全 ${pages} ページ。`,
     `このページのコマ数は ちょうど ${panels}コマ (EXACTLY ${panels} panels)。`,
-    `コマ割りは ${grid.columns}列 × ${grid.rows}行。${grid.description}。`,
+    panels === 1
+      ? 'ページ全体を 1 つの大きなコマにする。分割線を入れず、画面いっぱいに 1 場面だけを描く。'
+      : `コマ割りは ${grid.columns}列 × ${grid.rows}行。${grid.description}。`,
     `コマの枠線をはっきり描き、${panels} コマすべてを絵で埋める。`,
     `絶対に ${panels} コマ以外の数にしないこと。コマを増やしても減らしてもいけない。`,
+    sceneRule,
     `雰囲気: ${mood}`,
     `全体のストーリー: ${story.trim()}`,
     `このページで描く場面: ${segment}`,

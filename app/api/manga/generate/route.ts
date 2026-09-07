@@ -2,12 +2,14 @@ import { NextResponse } from 'next/server';
 import { generateAllDialoguesWithGPT55 } from '@/lib/gpt55-dialogues';
 import { generateImage, isOpenAIConfigured } from '@/lib/openai';
 import {
+  SCENE_TYPES,
   buildMangaGenerationPrompt,
   clampPages,
   getGridLayout,
   normalizePanelCount,
   type PageConfig,
   type PanelCount,
+  type SceneType,
 } from '@/lib/scene-blocks';
 
 export const runtime = 'nodejs';
@@ -26,6 +28,8 @@ export interface MangaPageResult {
   revisedPrompt?: string;
   /** コマ順のセリフ。gpt-5.5 での生成を使ったときだけ入る */
   dialogues?: string[];
+  /** AI 自動コマ割りで判定した場面の種類 */
+  sceneType?: SceneType;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -38,9 +42,14 @@ function readPageConfigs(raw: unknown, totalPages: number): PageConfig[] {
     const found = list.find(
       (c: any) => Math.round(Number(c?.pageNumber)) === pageNumber,
     );
+    const sceneType = (found as any)?.sceneType;
     return {
       pageNumber,
       panelsCount: normalizePanelCount((found as any)?.panelsCount),
+      // AI 自動コマ割りのときだけ入る。想定外の値は落として無指定扱いにする
+      sceneType: (SCENE_TYPES as readonly string[]).includes(sceneType)
+        ? (sceneType as SceneType)
+        : undefined,
     };
   });
 }
@@ -126,11 +135,12 @@ export async function POST(request: Request) {
   for (let pageNum = from; pageNum <= to; pageNum += 1) {
     const pageConfig = configs.find((c) => c.pageNumber === pageNum);
     const panelsCount = pageConfig?.panelsCount ?? 6;
+    const sceneType = pageConfig?.sceneType;
 
     console.log(
       `🎨 ページ ${pageNum}/${totalPages}: ${panelsCount}コマ (${
         getGridLayout(panelsCount).label
-      }) を生成中…`,
+      })${sceneType ? ` / ${sceneType}シーン` : ''} を生成中…`,
     );
 
     const dialogues = allDialogues[pageNum - from] ?? [];
@@ -145,6 +155,7 @@ export async function POST(request: Request) {
       totalPages,
       panelsCount,
       mood,
+      sceneType,
       language,
       withoutText: hasDialogues,
     });
@@ -163,6 +174,7 @@ export async function POST(request: Request) {
         prompt,
         revisedPrompt: image.revisedPrompt,
         dialogues: hasDialogues ? dialogues : undefined,
+        sceneType,
       });
     } catch (error: any) {
       const message = error?.message || `${pageNum}ページ目の生成に失敗しました。`;
