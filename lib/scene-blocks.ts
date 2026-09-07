@@ -181,8 +181,58 @@ export interface GridLayout {
   hasWideLastPanel: boolean;
 }
 
-/** コマ数からコマ割りの形を決める */
-export function getGridLayout(panelsCount: PanelCount): GridLayout {
+/**
+ * ページの向き。
+ *
+ * 漫画モードの 1 枚絵は横長（1536x1024）、
+ * Kindle 本のページは縦長（1456x2188）で、同じコマ数でも自然な並びが変わる。
+ */
+export type PageOrientation = 'landscape' | 'portrait';
+
+/**
+ * 横長向けのコマ割りを縦長ページ向けに組み替える。
+ *
+ * 列のほうが多いままだと縦長ページで横に潰れるので、列と行を入れ替える。
+ * 6 コマなら 3列×2行 → 2列×3行 と、実際の漫画に近い並びになる。
+ * 最下段の大ゴマ（5 コマ・7 コマ）はそのまま最下段に残す。
+ */
+function toPortrait(layout: GridLayout): GridLayout {
+  const gridRows = layout.hasWideLastPanel ? layout.rows - 1 : layout.rows;
+  if (layout.columns <= gridRows) return layout;
+
+  const columns = gridRows;
+  const rows = layout.hasWideLastPanel ? layout.columns + 1 : layout.columns;
+  const panels = columns * layout.columns + (layout.hasWideLastPanel ? 1 : 0);
+
+  return {
+    columns,
+    rows,
+    label: layout.hasWideLastPanel
+      ? `${columns}×${layout.columns}+1`
+      : `${columns}×${rows}`,
+    description: layout.hasWideLastPanel
+      ? `${columns} 列 × ${layout.columns} 行に同じ大きさのコマを ${
+          panels - 1
+        } つ並べ、その下に横幅いっぱいの大きなコマを 1 つ置いて合計 ${panels} コマにする`
+      : `${columns} 列 × ${rows} 行に、同じ大きさのコマを ${panels} つ並べる`,
+    gridClass: `grid-cols-${columns}`,
+    hasWideLastPanel: layout.hasWideLastPanel,
+  };
+}
+
+/**
+ * コマ数からコマ割りの形を決める。
+ * 縦長ページ（Kindle 本）では列と行を入れ替えた並びを返す。
+ */
+export function getGridLayout(
+  panelsCount: PanelCount,
+  orientation: PageOrientation = 'landscape',
+): GridLayout {
+  const layout = getLandscapeGridLayout(panelsCount);
+  return orientation === 'portrait' ? toPortrait(layout) : layout;
+}
+
+function getLandscapeGridLayout(panelsCount: PanelCount): GridLayout {
   switch (panelsCount) {
     case 1:
       return {
@@ -288,8 +338,14 @@ export interface GridShape {
 }
 
 /** コマ数から格子の形を出す */
-export function getGridShape(panelsCount: PanelCount): GridShape {
-  const { columns, rows, hasWideLastPanel } = getGridLayout(panelsCount);
+export function getGridShape(
+  panelsCount: PanelCount,
+  orientation: PageOrientation = 'landscape',
+): GridShape {
+  const { columns, rows, hasWideLastPanel } = getGridLayout(
+    panelsCount,
+    orientation,
+  );
   return {
     columns,
     rows,
@@ -454,6 +510,20 @@ export function pageConfigLabel(config: PageConfig): string {
 export const MIN_PAGES = 1;
 export const MAX_PAGES = 50;
 
+/**
+ * 単行本（Kindle 本）として一度に作れるページ数の上限。
+ * 画面から選ぶページ数（MAX_PAGES）とは別枠にしてある。
+ */
+export const MAX_BOOK_PAGES = 200;
+
+/** 単行本のページ数を許容範囲に収める */
+export function clampBookPages(pages: number): number {
+  return Math.min(
+    MAX_BOOK_PAGES,
+    Math.max(MIN_PAGES, Math.round(pages) || MIN_PAGES),
+  );
+}
+
 export type PagePresetId = 'short' | 'medium' | 'long' | 'custom';
 
 export interface PagePreset {
@@ -542,7 +612,8 @@ export const MANGA_MOODS = [
  * どこを描くかはモデルに任せる（無理に薄く割るより破綻しにくい）。
  */
 export function splitStoryByPages(story: string, totalPages: number): string[] {
-  const pages = clampPages(totalPages);
+  // 単行本は 50 ページを超えるので、ここは MAX_BOOK_PAGES まで許す
+  const pages = clampBookPages(totalPages);
   const trimmed = story.trim();
 
   // 文末記号を含めたまま区切る（記号で終わらない末尾も 1 文として拾う）
@@ -580,6 +651,11 @@ export interface MangaPromptOptions {
    * 渡すと「大ゴマで魅せる」「細かく刻む」といった演出の指示も一緒に入る。
    */
   sceneType?: SceneType;
+  /**
+   * ページの向き。既定は横長（漫画モードの 1 枚絵）。
+   * 単行本は縦長ページなので 'portrait' を渡す。
+   */
+  orientation?: PageOrientation;
   /** 吹き出しやオノマトペの言語。既定は日本語 */
   language?: string;
   /**
@@ -603,13 +679,14 @@ export function buildMangaGenerationPrompt({
   panelsCount,
   mood,
   sceneType,
+  orientation = 'landscape',
   language = '日本語',
   withoutText = false,
 }: MangaPromptOptions): string {
-  const pages = clampPages(totalPages);
+  const pages = clampBookPages(totalPages);
   const current = Math.min(Math.max(1, Math.round(pageNumber) || 1), pages);
   const panels = normalizePanelCount(panelsCount);
-  const grid = getGridLayout(panels);
+  const grid = getGridLayout(panels, orientation);
   const segment = splitStoryByPages(story, pages)[current - 1] ?? story.trim();
 
   // セリフをあとから重ねる場合は、絵の中に文字を描かせない
@@ -628,6 +705,9 @@ export function buildMangaGenerationPrompt({
 
   return [
     `${language}の漫画。ページ ${current} / 全 ${pages} ページ。`,
+    orientation === 'portrait'
+      ? '縦長のページ（単行本の 1 ページ）。上下に長い判型いっぱいに描く。'
+      : null,
     `このページのコマ数は ちょうど ${panels}コマ (EXACTLY ${panels} panels)。`,
     panels === 1
       ? 'ページ全体を 1 つの大きなコマにする。分割線を入れず、画面いっぱいに 1 場面だけを描く。'

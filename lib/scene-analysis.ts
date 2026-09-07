@@ -5,7 +5,7 @@ import {
   DEFAULT_SCENE_TYPE,
   SCENE_TYPES,
   SCENE_TYPE_DESCRIPTIONS,
-  clampPages,
+  clampBookPages,
   getAutoFrameCount,
   normalizeSceneType,
   resolveFrameCount,
@@ -150,20 +150,40 @@ export async function analyzeStoryLayout(
   story: string,
   totalPages: number,
 ): Promise<ScenePageLayout[]> {
-  const pages = clampPages(totalPages);
+  const pages = clampBookPages(totalPages);
   const segments = splitStoryByPages(story, pages);
+  return analyzeLayoutRange(story, segments, 1, pages);
+}
+
+/**
+ * 指定した範囲のページだけコマ割りを判定する。
+ *
+ * ストーリー全体は毎回渡して前後のつながりを見せたうえで、
+ * 判定させるのは from〜to のページに絞る。
+ * 120 ページを一度に聞くと配列が長すぎて壊れるので、単行本はここを分けて呼ぶ。
+ */
+export async function analyzeLayoutRange(
+  story: string,
+  segments: string[],
+  from: number,
+  to: number,
+): Promise<ScenePageLayout[]> {
+  const totalPages = segments.length;
+  const count = to - from + 1;
+  const target = segments.slice(from - 1, to);
 
   const user = [
     `【ストーリー全体】\n${story.trim()}`,
-    `【ページ数】\n全 ${pages} ページ`,
-    `【各ページで描く場面】\n${segments
-      .map((segment, i) => `${i + 1}ページ目: ${segment}`)
+    `【ページ数】\n全 ${totalPages} ページ`,
+    `【今回判定するページ】\n${from} 〜 ${to} ページ目（${count} ページ）`,
+    `【各ページで描く場面】\n${target
+      .map((segment, i) => `${from + i}ページ目: ${segment}`)
       .join('\n')}`,
     `【シーンの種類】\n${SCENE_TYPE_LIST}`,
     CRITERIA,
     [
       '【条件】',
-      `- 要素数はちょうど ${pages} 個。1 ページ目から順に並べること`,
+      `- 要素数はちょうど ${count} 個。pageNumber は ${from} から ${to} まで順に振ること`,
       '- 全ページを同じ種類にせず、物語の流れに合わせて緩急をつけること',
       '- 山場は大ゴマ、会話やアクションは細かいコマ、と漫画らしい構成にすること',
       '- reason は 30 文字以内の日本語',
@@ -171,8 +191,8 @@ export async function analyzeStoryLayout(
     [
       '【出力形式】',
       'JSON 配列のみ。例:',
-      '[{"pageNumber": 1, "sceneType": "景色", "recommendedFrames": 2, "reason": "舞台を見せる導入"},',
-      ' {"pageNumber": 2, "sceneType": "会話", "recommendedFrames": 6, "reason": "掛け合いが続く"}]',
+      `[{"pageNumber": ${from}, "sceneType": "景色", "recommendedFrames": 2, "reason": "舞台を見せる導入"},`,
+      ` {"pageNumber": ${from + 1}, "sceneType": "会話", "recommendedFrames": 6, "reason": "掛け合いが続く"}]`,
     ].join('\n'),
   ].join('\n\n');
 
@@ -180,7 +200,9 @@ export async function analyzeStoryLayout(
   try {
     const started = Date.now();
     const response = await generateText({ system: SYSTEM_PROMPT, user });
-    console.log(`🧠 全 ${pages} ページのコマ割り判定 ${Date.now() - started}ms`);
+    console.log(
+      `🧠 ${from}〜${to} ページのコマ割り判定 ${Date.now() - started}ms`,
+    );
     parsed = parseArray(response);
     if (!parsed) {
       console.error('❌ コマ割りの JSON を取り出せませんでした:', response.slice(0, 200));
@@ -192,10 +214,10 @@ export async function analyzeStoryLayout(
   // 一括で取れなかったときは、ページごとに判定し直す
   if (!parsed) {
     const perPage = await Promise.all(
-      segments.map((segment) => analyzeScene(segment)),
+      target.map((segment) => analyzeScene(segment)),
     );
     return perPage.map((analysis, i) => ({
-      pageNumber: i + 1,
+      pageNumber: from + i,
       panelsCount: analysis.recommendedFrames,
       sceneType: analysis.sceneType,
       reason: analysis.reason,
@@ -209,8 +231,8 @@ export async function analyzeStoryLayout(
       ? (value as Record<string, unknown>)
       : null;
 
-  return Array.from({ length: pages }, (_, i) => {
-    const pageNumber = i + 1;
+  return Array.from({ length: count }, (_, i) => {
+    const pageNumber = from + i;
     const found = items
       .map(asRecord)
       .find(
