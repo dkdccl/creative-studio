@@ -11,6 +11,14 @@ import {
   nativePageMillimeters,
   type PdfPageMode,
 } from '@/lib/gravure-pdf';
+import {
+  DEFAULT_KDP_FORMAT,
+  KDP_FORMATS,
+  KDP_MIN_DPI,
+  calculateKdpPageSize,
+  findKdpFormat,
+  type KdpFormatKey,
+} from '@/lib/kdp-formats';
 
 import { Card, ErrorNote, PrimaryButton, SecondaryButton, StepShell } from './ui';
 
@@ -28,6 +36,8 @@ export function StepExport({
   const [error, setError] = useState<string | null>(null);
   const [pageMode, setPageMode] = useState<PdfPageMode>(DEFAULT_PDF_OPTIONS.pageMode);
   const [upscale, setUpscale] = useState(DEFAULT_PDF_OPTIONS.upscaleToTargetDpi);
+  const [kdpFormat, setKdpFormat] = useState<KdpFormatKey>(DEFAULT_KDP_FORMAT);
+
   const [lastPdfDpi, setLastPdfDpi] = useState<number | null>(null);
   const [savedPath, setSavedPath] = useState<string | null>(null);
 
@@ -41,6 +51,12 @@ export function StepExport({
   const a4EffectiveDpi = sample ? Math.round(a4Dpi(sample.width, sample.height)) : 0;
   const a4NeedsUpscale = a4EffectiveDpi < TARGET_DPI;
 
+  // 判型を変えたときの見え方を、書き出す前に出す
+  const kdpSize =
+    sample && findKdpFormat(kdpFormat)
+      ? calculateKdpPageSize(findKdpFormat(kdpFormat)!, sample.width, sample.height)
+      : null;
+
   async function run(kind: 'zip' | 'pdf') {
     setBusy(kind);
     setError(null);
@@ -51,7 +67,7 @@ export function StepExport({
         const result = await downloadPdf(
           metadata,
           shots,
-          { pageMode, upscaleToTargetDpi: upscale },
+          { pageMode, kdpFormat, upscaleToTargetDpi: upscale },
           volumeNumber,
         );
         setLastPdfDpi(result.minDpi);
@@ -133,6 +149,46 @@ export function StepExport({
               <input
                 type="radio"
                 name="page-mode"
+                checked={pageMode === 'kindle'}
+                onChange={() => setPageMode('kindle')}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-violet-500"
+              />
+              <span>
+                <span className="block text-sm font-bold text-violet-50">
+                  Kindle 電子書籍向け
+                </span>
+                <span className="mt-0.5 block text-xs text-violet-200/50">
+                  画像と同じ縦横比のページに 1 枚ずつ隙間なく敷きます
+                  {sample && `（${sample.width}×${sample.height} pt）`}。
+                  Kindle は端末の画面に合わせて拡大縮小するので、縦横比が合っていれば
+                  回転や分割は起きません。
+                </span>
+              </span>
+            </label>
+
+            <label className="flex cursor-pointer gap-3 rounded-xl border border-violet-400/20 bg-black/25 px-4 py-3 transition hover:border-violet-400/50">
+              <input
+                type="radio"
+                name="page-mode"
+                checked={pageMode === 'kdp'}
+                onChange={() => setPageMode('kdp')}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-violet-500"
+              />
+              <span>
+                <span className="block text-sm font-bold text-violet-50">
+                  ペーパーバックの判型に合わせる
+                </span>
+                <span className="mt-0.5 block text-xs text-violet-200/50">
+                  仕上がり寸法に裁ち落とし（幅 +3.2mm・高さ +6.4mm）を足したページを作り、
+                  絵を全面に敷きます。入稿先の判型と一致するので、KDP 側で拡大・断裁されません。
+                </span>
+              </span>
+            </label>
+
+            <label className="flex cursor-pointer gap-3 rounded-xl border border-violet-400/20 bg-black/25 px-4 py-3 transition hover:border-violet-400/50">
+              <input
+                type="radio"
+                name="page-mode"
                 checked={pageMode === 'native-300dpi'}
                 onChange={() => setPageMode('native-300dpi')}
                 className="mt-0.5 h-4 w-4 shrink-0 accent-violet-500"
@@ -170,6 +226,79 @@ export function StepExport({
             </label>
           </div>
         </fieldset>
+
+        {pageMode === 'kindle' && (
+          <p className="mb-3 rounded-xl border border-violet-400/25 bg-violet-500/10 px-4 py-3 text-xs text-violet-100/70">
+            Kindle の電子書籍として入稿する場合はこれを選んでください。ページが
+            極端に小さいと、Amazon の変換で回転したりページが分割されたりします。
+            より確実にするなら、ZIP で書き出した JPEG を Amazon の Kindle Create
+            に読み込ませて固定レイアウトで作る方法もあります。
+          </p>
+        )}
+
+        {pageMode === 'kdp' && (
+          <div className="mb-3 rounded-xl border border-violet-400/20 bg-black/25 p-4">
+            <span className="mb-2 block text-sm font-bold text-violet-50">判型</span>
+            <div className="flex flex-col gap-2">
+              {KDP_FORMATS.map((format) => {
+                const size = sample
+                  ? calculateKdpPageSize(format, sample.width, sample.height)
+                  : null;
+                return (
+                  <label
+                    key={format.key}
+                    className="flex cursor-pointer gap-3 rounded-xl border border-violet-400/20 px-3 py-2 transition hover:border-violet-400/50"
+                  >
+                    <input
+                      type="radio"
+                      name="kdp-format"
+                      checked={kdpFormat === format.key}
+                      onChange={() => setKdpFormat(format.key)}
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-violet-500"
+                    />
+                    <span>
+                      <span className="block text-sm font-bold text-violet-50">
+                        {format.name}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-violet-200/50">
+                        {format.description}
+                        {size &&
+                          `（ページ ${size.pageMm.width.toFixed(1)}×${size.pageMm.height.toFixed(1)}mm）`}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {kdpSize && (
+              <div className="mt-3 space-y-2">
+                {kdpSize.crop.width < 0.005 && kdpSize.crop.height < 0.005 ? (
+                  <p className="rounded-xl border border-emerald-500/40 bg-emerald-950/25 px-3 py-2 text-xs text-emerald-200">
+                    ✅ 判型と縦横比がほぼ一致します。切れはほとんどありません。
+                  </p>
+                ) : (
+                  <p className="rounded-xl border border-amber-500/40 bg-amber-950/25 px-3 py-2 text-xs text-amber-200">
+                    ⚠ 全面に敷くため
+                    {kdpSize.crop.width > 0.005 &&
+                      ` 左右が各 ${((kdpSize.crop.width * 100) / 2).toFixed(1)}%`}
+                    {kdpSize.crop.height > 0.005 &&
+                      ` 上下が各 ${((kdpSize.crop.height * 100) / 2).toFixed(1)}%`}
+                    切れます。人物が端で切れないか確認してください。
+                  </p>
+                )}
+
+                {kdpSize.dpi < KDP_MIN_DPI && (
+                  <p className="rounded-xl border border-amber-500/40 bg-amber-950/25 px-3 py-2 text-xs text-amber-200">
+                    ⚠ このままだと実効 約 {kdpSize.dpi} DPI で、KDP の目安 {KDP_MIN_DPI} DPI
+                    に届きません。下の引き伸ばしを入れると {KDP_MIN_DPI} DPI
+                    で書き出せますが、水増しなので細部は増えません。
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {pageMode === 'a4' && a4NeedsUpscale && (
           <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-950/20 px-4 py-3">
