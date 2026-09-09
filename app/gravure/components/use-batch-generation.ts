@@ -11,10 +11,14 @@ import {
   type GravureShot,
   type PromptSettings,
 } from '@/lib/gravure';
+import { buildReferenceSequence } from '@/lib/gravure-prompt';
 import { isStubMode, stubGenerate } from '@/lib/gravure-stub';
 import { isDesktop, nextVolumeNumber, saveGravureImage } from '@/lib/filesystem';
 
 export type BatchStatus = 'idle' | 'running' | 'done' | 'cancelled';
+
+/** 参考画像を 1 枚ごとに切り替えるか、参考画像ごとにまとめて作るか */
+export type ReferenceMode = 'rotate' | 'multiply';
 
 /** 一括生成の指示。枚数 × 回数ぶんを順番に作る */
 export interface StartOptions {
@@ -25,6 +29,13 @@ export interface StartOptions {
   settings: PromptSettings;
   /** img2img のときの参考画像 */
   references?: File[];
+  /**
+   * 参考画像の使い方。
+   *
+   * rotate は 1 枚ごとに参考画像を切り替える（合計は 枚数 × 回数）。
+   * multiply は参考画像 1 枚につき指定枚数ずつ作る（合計は 枚数 × 参考数 × 回数）。
+   */
+  referenceMode?: ReferenceMode;
   /** セッションごとにプロンプトへ足すテーマ。空なら毎回同じ */
   themes?: string[];
   /**
@@ -178,12 +189,22 @@ export function useBatchGeneration() {
       references = [],
       themes = [],
       sessionPrompts = [],
+      referenceMode = 'rotate',
     }: StartOptions) => {
       // img2img は参考画像 1 枚につき count 枚ずつ作る。txt2img は参考画像なしの 1 巡
+      const usingReferences = request.mode === 'img2img' && references.length > 0;
+
+      // rotate では参考画像で枚数を増やさない。1 枚ごとに参考画像を配り替える
       const passes: (File | null)[] =
-        request.mode === 'img2img' && references.length > 0 ? references : [null];
+        usingReferences && referenceMode === 'multiply' ? references : [null];
       const perSession = count * passes.length;
       const grandTotal = perSession * sessions;
+
+      // rotate 用の並び。山札を混ぜて配るので、参考画像が続けて同じにならない
+      const rotation =
+        usingReferences && referenceMode === 'rotate'
+          ? buildReferenceSequence(references.length, grandTotal)
+          : null;
 
       // 前回ぶんは破棄してから始める
       releaseUrls();
@@ -228,11 +249,19 @@ export function useBatchGeneration() {
             : request;
 
         for (let pass = 0; pass < passes.length; pass += 1) {
-          const reference = passes[pass];
-          const referenceIndex = reference ? pass + 1 : undefined;
-
           for (let i = 0; i < count; i += 1) {
             if (controller.signal.aborted) break outer;
+
+            // rotate は通し番号で配り、multiply は pass ごとに固定する
+            const rotated = rotation?.[ordinal];
+            const reference = rotation
+              ? references[(rotated ?? 1) - 1]
+              : passes[pass];
+            const referenceIndex = rotation
+              ? rotated
+              : passes[pass]
+                ? pass + 1
+                : undefined;
 
             const index = i + 1;
             // 同じ種だと同じ絵になるので 1 枚ずつずらす。

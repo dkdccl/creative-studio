@@ -14,6 +14,8 @@ import {
 
 import type { PoseMode } from '@/lib/gravure-prompt';
 
+import type { ReferenceMode } from './use-batch-generation';
+
 import { GenerationPlan, type PromptMode } from './generation-plan';
 import { ReferenceUpload } from './reference-upload';
 import { Field, PrimaryButton, Select, StepShell, TextArea, TextInput } from './ui';
@@ -40,6 +42,8 @@ export function StepPrompt({
   onPoseModeChange,
   manualPose,
   onManualPoseChange,
+  referenceMode,
+  onReferenceModeChange,
   references,
   onReferencesChange,
   onNext,
@@ -60,6 +64,8 @@ export function StepPrompt({
   onPoseModeChange: (mode: PoseMode) => void;
   manualPose: string;
   onManualPoseChange: (pose: string) => void;
+  referenceMode: ReferenceMode;
+  onReferenceModeChange: (mode: ReferenceMode) => void;
   references: File[];
   onReferencesChange: (files: File[]) => void;
   onNext: () => void;
@@ -217,6 +223,8 @@ export function StepPrompt({
         manualPose={manualPose}
         onManualPoseChange={onManualPoseChange}
         referenceCount={isImg2Img ? references.length : 0}
+        referenceMode={referenceMode}
+        onReferenceModeChange={onReferenceModeChange}
       />
 
       {/* img2img は出力サイズを参考画像から引き継ぐので、ここでは触らない */}

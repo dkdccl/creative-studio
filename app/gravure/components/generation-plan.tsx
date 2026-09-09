@@ -17,6 +17,8 @@ import {
   type PoseMode,
 } from '@/lib/gravure-prompt';
 
+import type { ReferenceMode } from './use-batch-generation';
+
 import { Card, SecondaryButton, Select, TextInput } from './ui';
 
 /** プロンプトの決め方 */
@@ -100,6 +102,8 @@ export function GenerationPlan({
   onManualPoseChange,
   /** img2img で参考画像を使うと、1 セッションの枚数が枚数 × 参考画像数になる */
   referenceCount,
+  referenceMode,
+  onReferenceModeChange,
 }: {
   count: number;
   onCountChange: (value: number) => void;
@@ -116,8 +120,12 @@ export function GenerationPlan({
   manualPose: string;
   onManualPoseChange: (pose: string) => void;
   referenceCount: number;
+  referenceMode: ReferenceMode;
+  onReferenceModeChange: (mode: ReferenceMode) => void;
 }) {
-  const perSession = referenceCount > 0 ? count * referenceCount : count;
+  // rotate は参考画像で枚数を増やさない。1 枚ごとに参考画像を切り替える
+  const multiplying = referenceCount > 0 && referenceMode === 'multiply';
+  const perSession = multiplying ? count * referenceCount : count;
   const total = perSession * sessions;
   const seconds = total * SECONDS_PER_IMAGE;
 
@@ -153,6 +161,51 @@ export function GenerationPlan({
           max={MAX_SESSIONS}
           onChange={onSessionsChange}
         />
+
+        {/* 参考画像を入れているときだけ出す。入れていないと選ぶ意味がない */}
+        {referenceCount > 0 && (
+          <div className="rounded-xl border border-violet-400/20 bg-black/20 p-3">
+            <span className="mb-2 block text-sm font-bold text-violet-50">
+              参考画像 {referenceCount} 枚の使い方
+            </span>
+            <div className="space-y-1.5">
+              {(
+                [
+                  [
+                    'rotate',
+                    '1 枚ごとに切り替える',
+                    `合計 ${count * sessions} 枚。参考画像を 1 枚ずつ配り替えて、似せた絵を作ります`,
+                  ],
+                  [
+                    'multiply',
+                    '参考画像ごとにまとめて作る',
+                    `合計 ${count * referenceCount * sessions} 枚。参考画像 1 枚につき ${count} 枚ずつ作ります`,
+                  ],
+                ] as const
+              ).map(([mode, label, hint]) => (
+                <label key={mode} className="flex cursor-pointer items-start gap-2">
+                  <input
+                    type="radio"
+                    name="referenceMode"
+                    value={mode}
+                    checked={referenceMode === mode}
+                    onChange={() => onReferenceModeChange(mode)}
+                    className="mt-0.5 h-4 w-4 accent-violet-500"
+                  />
+                  <span>
+                    <span className="text-xs font-bold text-violet-50">{label}</span>
+                    <span className="mt-0.5 block text-[11px] text-violet-200/50">
+                      {hint}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-violet-200/40">
+              切り替えは山札を混ぜて配る方式なので、同じ参考画像が続けて出ません。
+            </p>
+          </div>
+        )}
 
         {/* 同じ枚数でも「1 枚 × 50 回」と「50 枚 × 1 回」で結果が変わるのは
             テーマを回したときだけなので、その切り替えをここに置く */}
@@ -292,7 +345,7 @@ export function GenerationPlan({
           <div className="flex gap-2 sm:col-span-2">
             <dt className="text-violet-200/60">合計</dt>
             <dd className="font-bold text-white">
-              {referenceCount > 0
+              {multiplying
                 ? `${count} 枚 × 参考 ${referenceCount} 枚 × ${sessions} 回 = ${total} 枚`
                 : `${count} 枚 × ${sessions} 回 = ${total} 枚`}
             </dd>

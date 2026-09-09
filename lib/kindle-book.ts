@@ -102,6 +102,14 @@ export type ImageBackend = 'huggingface' | 'openai' | 'stub';
 
 export const IMAGE_BACKENDS: ImageBackend[] = ['huggingface', 'openai', 'stub'];
 
+/**
+ * ページの作り方。
+ *
+ * - panel: コマを 1 つずつ描いて、枠と余白はこちらで引いて組版する（既定）
+ * - whole: ページ丸ごと 1 枚で頼む。速くて安いが、コマ数の指示が守られない
+ */
+export type PageMode = 'panel' | 'whole';
+
 export function isImageBackend(value: unknown): value is ImageBackend {
   return (IMAGE_BACKENDS as string[]).includes(String(value));
 }
@@ -116,8 +124,12 @@ export interface BookPageState {
   reason?: string;
   /** このページで描く場面。AI が組んだネーム（日本語） */
   segment: string;
-  /** 画像モデルに渡す英語のプロンプト */
+  /** 画像モデルに渡す英語のプロンプト（ページ全体をひとことで） */
   imagePrompt?: string;
+  /** 見せ場か。metadata に残す */
+  isKeyMoment?: boolean;
+  /** コマごとの英語プロンプト。コマ単位生成で使う */
+  panelPrompts?: string[];
   /** コマ順のセリフ。セリフのないコマは空文字 */
   dialogues?: string[];
   status: BookPageStatus;
@@ -145,6 +157,8 @@ export interface BookJobState {
   batchSize: number;
   /** 絵をどこで作ったか */
   backend: ImageBackend;
+  /** コマ単位で作ったか、ページ丸ごとか */
+  pageMode: PageMode;
   /**
    * 最初に決めた構想（登場人物・章立て）。
    * ネームはバッチごとに作るので、これを毎回渡して人物と筋を揃える。
@@ -165,6 +179,8 @@ export interface BookJobState {
   pdfBytes?: number;
   /** PDF に使った JPEG の画質 */
   jpegQuality?: number;
+  /** 生成した画像の枚数。費用の目安に使う */
+  imagesGenerated?: number;
   error?: string;
   pages: BookPageState[];
   events: BookLogEvent[];

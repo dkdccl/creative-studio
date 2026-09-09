@@ -636,14 +636,33 @@ export function splitStoryByPages(story: string, totalPages: number): string[] {
   return result;
 }
 
-/** 場面の種類ごとの、英語での撮り方の指示 */
+/**
+ * 場面の種類ごとの、英語での撮り方の指示。
+ *
+ * SDXL は 77 トークンまでしか読まないので、どれも短くしてある。
+ */
 const SCENE_DIRECTION_EN: Record<SceneType, string> = {
-  感動: 'wide dramatic shot, strong emotional expression, speed lines and tone for emphasis',
-  会話: 'over-the-shoulder and bust-up shots alternating, characters facing each other',
-  アクション: 'dynamic angles, motion lines, exaggerated action poses',
-  景色: 'detailed background, establishing shot, characters small or absent',
-  表情: 'extreme close-up on faces, detailed eyes, emotional expression',
+  感動: 'dramatic wide shot',
+  会話: 'bust-up shots, characters facing each other',
+  アクション: 'dynamic angle, motion lines',
+  景色: 'establishing shot, detailed background',
+  表情: 'close-up on faces',
 };
+
+/**
+ * SDXL に渡せる長さの上限（語数）。
+ *
+ * CLIP のテキスト encoder は 77 トークンで切るので、それより後ろは
+ * 読まれない。日本語の説明を先に置いていたせいで場面の説明が
+ * まるごと切り落とされていた、という不具合があったので上限を決めてある。
+ */
+const MAX_PROMPT_WORDS = 58;
+
+/** 語数で切る。文の途中で切れても、後ろは読まれないので実害はない */
+function clampWords(text: string, max: number): string {
+  const words = text.trim().split(/\s+/);
+  return words.length <= max ? text.trim() : words.slice(0, max).join(' ');
+}
 
 /**
  * Stable Diffusion 系に渡す英語のプロンプトを組み立てる。
@@ -670,23 +689,23 @@ export function buildEnglishMangaPrompt({
 
   const layout =
     panels === 1
-      ? 'a single full-page panel filling the whole page, one thick black border around the edge'
+      ? 'single full page panel'
       : grid.hasWideLastPanel
-        ? `exactly ${panels} panels: a ${grid.columns}-column by ${gridRows}-row grid of ${
-            panels - 1
-          } equal panels, plus one full-width panel across the bottom`
-        : `exactly ${panels} panels arranged in a ${grid.columns}-column by ${grid.rows}-row grid of equal rectangles`;
+        ? `${panels} panel manga page, ${grid.columns}x${gridRows} grid plus one wide bottom panel`
+        : `${panels} panel manga page, ${grid.columns}x${grid.rows} grid`;
 
-  return [
-    'black and white Japanese manga page, screentone shading, clean ink linework, high contrast',
-    `page layout: ${layout}, thick black panel borders, thin white gutters between panels`,
-    `scene: ${imagePrompt.trim()}`,
-    sceneType ? `direction: ${SCENE_DIRECTION_EN[sceneType]}` : null,
-    // 文字はあとから PDF 側で吹き出しに入れるので、絵には描かせない
-    'absolutely no text, no letters, no speech bubbles, no lettering, no captions, no signature, no watermark',
-  ]
-    .filter((line): line is string => line !== null)
-    .join('. ');
+  // 大事な順に前から並べる。77 トークンで切られるので、
+  // 場面の説明を最初に置き、画風の指定は後ろに回す。
+  // 「描かないでほしいもの」は positive 側に書いても効きが薄いので、
+  // すべてネガティブプロンプト（config.huggingface.negativePrompt）に寄せてある。
+  const parts = [
+    imagePrompt.trim(),
+    sceneType ? SCENE_DIRECTION_EN[sceneType] : null,
+    layout,
+    'black and white manga, screentone, clean ink lines, thick panel borders',
+  ].filter((line): line is string => line !== null);
+
+  return clampWords(parts.join(', '), MAX_PROMPT_WORDS);
 }
 
 export interface MangaPromptOptions {

@@ -23,7 +23,7 @@ import {
   SecondaryButton,
   StepShell,
 } from './ui';
-import type { useBatchGeneration } from './use-batch-generation';
+import type { ReferenceMode, useBatchGeneration } from './use-batch-generation';
 
 type Batch = ReturnType<typeof useBatchGeneration>;
 
@@ -33,6 +33,7 @@ export function StepBatch({
   sessions,
   themes,
   sessionPrompts,
+  referenceMode,
   settings,
   references,
   onNext,
@@ -42,6 +43,7 @@ export function StepBatch({
   sessions: number;
   themes: string[];
   sessionPrompts: string[];
+  referenceMode: ReferenceMode;
   settings: PromptSettings;
   references: File[];
   onNext: () => void;
@@ -63,11 +65,14 @@ export function StepBatch({
     isRunning,
   } = batch;
 
-  const perSession =
-    settings.mode === 'img2img' && references.length > 0
-      ? count * references.length
-      : count;
+  // rotate は参考画像で枚数を増やさない。1 枚ごとに参考画像を切り替える
+  const multiplying =
+    settings.mode === 'img2img' &&
+    references.length > 0 &&
+    referenceMode === 'multiply';
+  const perSession = multiplying ? count * references.length : count;
   const planned = perSession * sessions;
+  const usingReferences = settings.mode === 'img2img' && references.length > 0;
   const denominator = total || planned;
   const percent = denominator === 0 ? 0 : (completed / denominator) * 100;
   const remainingSeconds = Math.max(0, denominator - completed) * SECONDS_PER_IMAGE;
@@ -90,7 +95,15 @@ export function StepBatch({
     setDetectError(null);
     setDeleteNote(null);
     setDeleteError(null);
-    batch.start({ count, sessions, settings, references, themes, sessionPrompts });
+    batch.start({
+      count,
+      sessions,
+      settings,
+      references,
+      themes,
+      sessionPrompts,
+      referenceMode,
+    });
   }
 
   /**
@@ -193,10 +206,12 @@ export function StepBatch({
       step={2}
       title="一括生成"
       description={`${count} 枚 × ${sessions} 回${
-        settings.mode === 'img2img' && references.length > 0
-          ? ` × 参考 ${references.length} 枚`
+        multiplying ? ` × 参考 ${references.length} 枚` : ''
+      } = 合計 ${planned} 枚を順番に生成します。${
+        usingReferences && !multiplying
+          ? `参考画像 ${references.length} 枚を 1 枚ごとに切り替えます。`
           : ''
-      } = 合計 ${planned} 枚を順番に生成します。途中で止められます。`}
+      }途中で止められます。`}
     >
       {isStubMode && (
         <p className="mb-4 rounded-xl border border-amber-500/50 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
@@ -214,12 +229,18 @@ export function StepBatch({
                 <dt className="text-violet-200/50">枚数</dt>
                 <dd className="font-bold text-white">
                   {planned} 枚（{count} 枚 × {sessions} 回
-                  {references.length > 0 && settings.mode === 'img2img'
-                    ? ` × 参考 ${references.length} 枚`
-                    : ''}
-                  ）
+                  {multiplying ? ` × 参考 ${references.length} 枚` : ''}）
                 </dd>
               </div>
+              {usingReferences && (
+                <div className="flex gap-2">
+                  <dt className="text-violet-200/50">参考画像</dt>
+                  <dd className="font-bold text-white">
+                    {references.length} 枚を
+                    {multiplying ? `それぞれ ${count} 枚ずつ` : '1 枚ごとに切り替え'}
+                  </dd>
+                </div>
+              )}
               <div className="flex gap-2">
                 <dt className="text-violet-200/50">回ごと</dt>
                 <dd className="font-bold text-white">

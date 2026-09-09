@@ -1,3 +1,5 @@
+import { GRAVURE_NEGATIVE } from './gravure-prompt';
+
 /**
  * グラビアモードの型と、Amazon KDP 向けメタデータの組み立て。
  *
@@ -197,7 +199,10 @@ export interface PromptSettings {
 
 export const DEFAULT_PROMPT_SETTINGS: PromptSettings = {
   prompt: '',
-  negativePrompt: 'blurry, low quality, watermark, extra fingers',
+  // 既定は gravure-prompt.ts のものを使う。
+  // 以前は 'blurry, low quality, watermark, extra fingers' だけで、
+  // 指の癒着や画面への文字の描き込みが素通りしていた。
+  negativePrompt: GRAVURE_NEGATIVE,
   stylePreset: 'photographic',
   width: 832,
   height: 1216,

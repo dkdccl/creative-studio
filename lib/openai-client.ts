@@ -278,6 +278,19 @@ export interface MangaPagePlan {
    * 日本語で渡すと場面を無視した「和風の絵」になってしまう。
    */
   imagePrompt: string;
+  /**
+   * 見せ場かどうか。
+   *
+   * true のページはコマを 1 つずつ描いてこちらで組版する。
+   * 画像モデルはコマ割りの指示をほとんど守らないので、
+   * 大事な場面だけ枚数をかけて狙いどおりに作る。
+   */
+  isKeyMoment: boolean;
+  /**
+   * コマごとの英語プロンプト。見せ場のページだけ入る。
+   * 要素数はコマ数と同じ。
+   */
+  panelPrompts?: string[];
   sceneType: SceneType;
   panelsCount: PanelCount;
   /** そのコマ数にした理由 */
@@ -384,10 +397,25 @@ export async function planMangaPages({
       `- 物語全体で ${totalPages} ページに収まるよう、この範囲の進み具合を配分すること`,
       '- 全ページを同じ種類にせず、緩急をつけること',
       '- description は「そのページで描く絵」を 60 文字以内の日本語で。人物・場所・動作を具体的に',
-      '- imagePrompt は description と同じ内容を英語で。画像生成モデルに渡すので、',
-      '  人物・服装・場所・動作・構図・時間帯を具体的な英語の名詞句で並べること（80 語以内）。',
-      '  日本語や人物名は使わず、そのページに出る登場人物の appearance を書き写すこと。',
-      '  コマ割りや画風の指定は書かない（こちらで足す）',
+      '- imagePrompt はページ全体をひとことで表す英語（30 語以内）。metadata 用',
+      '',
+      '★ panelPrompts が最も大事です ★',
+      '- コマは 1 つずつ別々の絵として生成します。',
+      '  panelPrompts に、コマ数と同じ数の英語プロンプトを、コマ順に並べること',
+      '- 1 コマ = 1 つの場面。「誰が・どんな服で・どんな表情で・何をしていて・どの寄りか」を書く',
+      '- **各コマ 30 語以内**。画像モデルは 30 語ほどで読むのをやめるので、',
+      '  長く書くと後ろが丸ごと無視されます。大事な順に前から並べること',
+      '  順番: 人物と動作 → 場所 → 時間帯と光 → 寄り引き',
+      '- 人物名は書かず、登場人物の appearance のうち特徴的な 2〜3 点',
+      '  （髪型・服装）だけを書く。全部書くと語数が尽きます',
+      '- 画風・コマ枠・「〜を描かない」はこちらで足すので書かないこと',
+      '- コマの間で場所と服装は揃えること。切り返しても同じ部屋・同じ服',
+      '  例（会話 4 コマ）:',
+      '    ["woman with black low ponytail in white blouse looking up from her desk, dark office at night, desk lamp, bust up",',
+      '     "man with short black hair in navy suit standing beside her desk, dark office at night, medium shot",',
+      '     "close up of her surprised face, dark office, desk lamp light from the left",',
+      '     "the man looking away, hand in his pocket, dark office window behind him, waist up"]',
+      '- isKeyMoment は見せ場（告白・別れ・決断など）なら true。全体の 15〜20% 程度',
       '- dialogues の要素数は recommendedFrames と同じにすること',
       `- セリフは 1 つ ${MAX_DIALOGUE_LENGTH} 文字以内。セリフのないコマは空文字 ""`,
       '- reason は 30 文字以内',
@@ -398,7 +426,15 @@ export async function planMangaPages({
       `[{"pageNumber": ${from}, "description": "深夜のオフィス、机に残る彼女を遠くから見る主人公",`,
       '  "imagePrompt": "a young man in a shirt watching a woman working at her desk from across a dark empty office at night, single desk lamp, wide establishing shot",',
       '  "sceneType": "景色", "recommendedFrames": 2, "reason": "舞台を見せる導入",',
+      '  "isKeyMoment": false, "panelPrompts": [],',
       '  "dialogues": ["", "まだ残ってるのか…"]}]',
+      '',
+      '見せ場のページの例:',
+      '{"pageNumber": 42, "description": "屋上で告白する二人", "imagePrompt": "...",',
+      ' "sceneType": "感動", "recommendedFrames": 2, "isKeyMoment": true,',
+      ' "panelPrompts": ["close-up of a 27 year old woman with a black low ponytail, white blouse, tears in her eyes, rooftop at dusk",',
+      '   "wide shot of the same woman and a 32 year old man in a navy suit embracing on a rooftop, city skyline at sunset"],',
+      ' "dialogues": ["ずっと言えなかった", "知ってたよ"]}',
     ].join('\n'),
   ]
     .filter((line): line is string => line !== null)
@@ -409,6 +445,7 @@ export async function planMangaPages({
     pageNumber,
     description: story?.trim() || title,
     imagePrompt: 'two characters talking in a room, dramatic composition',
+    isKeyMoment: false,
     sceneType: DEFAULT_SCENE_TYPE,
     panelsCount: resolveFrameCount(DEFAULT_SCENE_TYPE, undefined),
     dialogues: [],
@@ -469,10 +506,23 @@ export async function planMangaPages({
         ? raw.imagePrompt.trim().slice(0, 400)
         : fallback(pageNumber).imagePrompt;
 
+    // コマは 1 つずつ生成するので、コマ数ぶんのプロンプトが要る。
+    // 足りなければページ全体のプロンプトで埋めて、絵が抜けないようにする
+    const givenPrompts = (Array.isArray(raw.panelPrompts) ? raw.panelPrompts : [])
+      .map((p: unknown) => String(p ?? '').trim())
+      .filter((p: string) => p !== '')
+      .slice(0, panelsCount);
+    const panelPrompts = Array.from(
+      { length: panelsCount },
+      (_, i) => givenPrompts[i] ?? imagePrompt,
+    );
+
     return {
       pageNumber,
       description,
       imagePrompt,
+      isKeyMoment: raw.isKeyMoment === true,
+      panelPrompts,
       sceneType,
       panelsCount: normalizePanelCount(panelsCount),
       reason,
