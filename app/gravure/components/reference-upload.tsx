@@ -20,7 +20,7 @@ import {
 import { DeleteConfirmModal } from './delete-confirm-modal';
 import { DangerButton, ErrorNote, SecondaryButton } from './ui';
 
-import { POSE_REFERENCES, loadPoseFiles, poseImageUrl } from '@/lib/poses';
+import { listPoseEntries, loadPoseFiles, type PoseEntry } from '@/lib/poses';
 
 /** 「1.2 MB」のように読める形にする */
 function formatBytes(bytes: number): string {
@@ -230,28 +230,21 @@ export function ReferenceUpload({
   // 組み込みポーズ（public/poses/）の読み込み状態
   const [loadingPoses, setLoadingPoses] = useState(false);
   const [showPoses, setShowPoses] = useState(false);
-  // どのポーズの画像が置かれているか。file 名 → あるかどうか
-  const [poseFound, setPoseFound] = useState<Record<string, boolean>>({});
+  // public/poses/ に実際に置かれているファイル
+  const [poseEntries, setPoseEntries] = useState<PoseEntry[] | null>(null);
 
-  // 一覧を開いたときに、画像が置かれているかだけ見に行く
+  // 一覧を開いたときに、置かれているファイルを見に行く
   useEffect(() => {
     if (!showPoses) return;
     let alive = true;
 
-    (async () => {
-      const found: Record<string, boolean> = {};
-      for (const pose of POSE_REFERENCES) {
-        try {
-          const response = await fetch(poseImageUrl(pose), { method: 'HEAD' });
-          found[pose.file] =
-            response.ok &&
-            (response.headers.get('content-type') ?? '').startsWith('image/');
-        } catch {
-          found[pose.file] = false;
-        }
-      }
-      if (alive) setPoseFound(found);
-    })();
+    listPoseEntries()
+      .then((entries) => {
+        if (alive) setPoseEntries(entries);
+      })
+      .catch(() => {
+        if (alive) setPoseEntries([]);
+      });
 
     return () => {
       alive = false;
@@ -405,7 +398,7 @@ export function ReferenceUpload({
       const files = await loadPoseFiles();
       if (files.length === 0) {
         setError(
-          `組み込みポーズの画像が見つかりません。public/poses/ に ${POSE_REFERENCES[0].file} などを置いてください。`,
+          'public/poses/ に画像がありません。JPG / PNG / WebP を置いてください。',
         );
         return;
       }
@@ -494,7 +487,7 @@ export function ReferenceUpload({
           >
             {loadingPoses
               ? '読み込み中…'
-              : `⭐ 組み込みポーズを読み込む（${POSE_REFERENCES.length} 種）`}
+              : '⭐ 組み込みポーズを読み込む'}
           </SecondaryButton>
           <button
             type="button"
@@ -505,42 +498,53 @@ export function ReferenceUpload({
           </button>
 
           <p className="mt-1 text-[11px] text-violet-200/40">
-            public/poses/ の画像を参考画像として取り込みます。
-            取り込むと、生成時にポーズの説明もプロンプトへ自動で足されます。
+            public/poses/ に置いた画像をそのまま取り込みます。ファイルを足せば
+            そのぶん増えます（コードの編集は不要）。説明が書かれているものは
+            言葉でもポーズを指定し、無いものは画像だけを手がかりに似せて作ります。
           </p>
 
           {showPoses && (
-            <ol className="mt-2 space-y-2 rounded-xl border border-violet-400/20 bg-violet-950/40 p-3 text-left">
-              {POSE_REFERENCES.map((pose) => {
-                const found = poseFound[pose.file];
-                return (
-                  <li key={pose.id} className="text-[11px] leading-relaxed">
-                    <div className="flex flex-wrap items-baseline gap-2">
-                      <span className="font-bold text-violet-50">
-                        {pose.id}. {pose.label}
-                      </span>
-                      <code className="text-violet-200/50">{pose.file}</code>
-                      <span
-                        className={
-                          found === undefined
-                            ? 'text-violet-200/40'
-                            : found
-                              ? 'text-emerald-300'
-                              : 'text-amber-300'
-                        }
-                      >
-                        {found === undefined
-                          ? '確認中…'
-                          : found
-                            ? '✅ 配置済み'
-                            : '⚠ 未配置'}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-violet-100/60">{pose.description}</p>
-                  </li>
-                );
-              })}
-            </ol>
+            <div className="mt-2 rounded-xl border border-violet-400/20 bg-violet-950/40 p-3 text-left">
+              {poseEntries === null ? (
+                <p className="text-[11px] text-violet-200/40">確認中…</p>
+              ) : poseEntries.length === 0 ? (
+                <p className="text-[11px] text-amber-300">
+                  public/poses/ に画像がありません。JPG / PNG / WebP を置いてください。
+                </p>
+              ) : (
+                <>
+                  <p className="mb-2 text-[11px] text-violet-200/50">
+                    {poseEntries.length} 件（説明あり{' '}
+                    {poseEntries.filter((entry) => entry.known).length} 件 / 画像のみ{' '}
+                    {poseEntries.filter((entry) => !entry.known).length} 件）
+                  </p>
+                  <ol className="space-y-2">
+                    {poseEntries.map((entry, i) => (
+                      <li key={entry.file} className="text-[11px] leading-relaxed">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <span className="font-bold text-violet-50">
+                            {i + 1}. {entry.label}
+                          </span>
+                          <code className="text-violet-200/50">{entry.file}</code>
+                          <span
+                            className={
+                              entry.known ? 'text-emerald-300' : 'text-violet-200/50'
+                            }
+                          >
+                            {entry.known ? '✅ 説明あり' : '🖼 画像のみ'}
+                          </span>
+                        </div>
+                        {entry.description && (
+                          <p className="mt-0.5 text-violet-100/60">
+                            {entry.description}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>

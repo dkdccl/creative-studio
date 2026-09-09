@@ -172,8 +172,15 @@ export const ACCEPTED_UPLOAD_TYPES = ['image/jpeg', 'image/png'] as const;
 export const MAX_UPLOAD_PIXELS = 1920;
 export const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 
-/** 参考画像の上限。生成回数は 枚数 × 参考画像数 になるので歯止めを入れる */
-export const MAX_REFERENCES = 10;
+/**
+ * 参考画像の上限。
+ *
+ * 「各ポーズ 1 枚ずつ」では 1 周の枚数が参考画像の数になるので、
+ * 1 回の生成枚数の上限（MAX_BATCH_SIZE）と同じ 50 にそろえてある。
+ * 「参考画像ごとにまとめて作る」を選ぶと 枚数 × 参考数 になるため、
+ * そちらは画面の合計表示と警告で気づけるようにしている。
+ */
+export const MAX_REFERENCES = 50;
 
 
 /** 1 回の生成に渡す設定。ステップ 1 で決めてステップ 2 で使う */
