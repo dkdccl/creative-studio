@@ -12,13 +12,21 @@ import {
   type PromptSettings,
 } from '@/lib/gravure';
 import { buildReferenceSequence } from '@/lib/gravure-prompt';
+import { poseDescriptionForFileName } from '@/lib/poses';
 import { isStubMode, stubGenerate } from '@/lib/gravure-stub';
 import { isDesktop, nextVolumeNumber, saveGravureImage } from '@/lib/filesystem';
 
 export type BatchStatus = 'idle' | 'running' | 'done' | 'cancelled';
 
-/** 参考画像を 1 枚ごとに切り替えるか、参考画像ごとにまとめて作るか */
-export type ReferenceMode = 'rotate' | 'multiply';
+/**
+ * 参考画像の使い方。
+ *
+ * perPose … 1 回で各ポーズを 1 枚ずつ作る。それを回数ぶん繰り返す。
+ *           1 周ごとにテーマと種が変わるので、同じポーズでも違う絵になる。
+ * rotate  … 1 枚ごとに参考画像を配り替える。枚数は自分で決める。
+ * multiply… 参考画像 1 枚につき指定枚数ずつまとめて作る（同じポーズが続く）。
+ */
+export type ReferenceMode = 'perPose' | 'rotate' | 'multiply';
 
 /** 一括生成の指示。枚数 × 回数ぶんを順番に作る */
 export interface StartOptions {
@@ -189,20 +197,25 @@ export function useBatchGeneration() {
       references = [],
       themes = [],
       sessionPrompts = [],
-      referenceMode = 'rotate',
+      referenceMode = 'perPose',
     }: StartOptions) => {
       // img2img は参考画像 1 枚につき count 枚ずつ作る。txt2img は参考画像なしの 1 巡
       const usingReferences = request.mode === 'img2img' && references.length > 0;
 
-      // rotate では参考画像で枚数を増やさない。1 枚ごとに参考画像を配り替える
+      // perPose は 1 周で各ポーズを 1 枚ずつ。順番は山札を混ぜて決める。
+      // multiply だけは参考画像ごとに count 枚まとめて作る（同じポーズが続く）
+      const perPose = usingReferences && referenceMode === 'perPose';
       const passes: (File | null)[] =
         usingReferences && referenceMode === 'multiply' ? references : [null];
-      const perSession = count * passes.length;
+      // perPose の 1 周は参考画像の数。枚数の指定は使わない
+      const shotsPerPass = perPose ? references.length : count;
+      const perSession = shotsPerPass * passes.length;
       const grandTotal = perSession * sessions;
 
-      // rotate 用の並び。山札を混ぜて配るので、参考画像が続けて同じにならない
+      // 配り替える並び。山札を混ぜて配るので、続けて同じ参考画像にならない。
+      // 山札 1 巡ぶんが 1 周にそろうので、perPose では各周に全ポーズが 1 枚ずつ入る
       const rotation =
-        usingReferences && referenceMode === 'rotate'
+        usingReferences && referenceMode !== 'multiply'
           ? buildReferenceSequence(references.length, grandTotal)
           : null;
 
@@ -249,7 +262,7 @@ export function useBatchGeneration() {
             : request;
 
         for (let pass = 0; pass < passes.length; pass += 1) {
-          for (let i = 0; i < count; i += 1) {
+          for (let i = 0; i < shotsPerPass; i += 1) {
             if (controller.signal.aborted) break outer;
 
             // rotate は通し番号で配り、multiply は pass ごとに固定する
@@ -269,8 +282,22 @@ export function useBatchGeneration() {
             const seed = seedFor(request.baseSeed, ordinal);
             ordinal += 1;
 
+            // 組み込みのポーズ画像なら、同じ内容を言葉でも重ねて指定する。
+            // 参考画像だけだと構図は寄っても手の位置や視線が流れるため
+            const poseText = reference
+              ? poseDescriptionForFileName(reference.name)
+              : undefined;
+            const shotRequest = poseText
+              ? {
+                  ...sessionRequest,
+                  prompt: sessionRequest.prompt.trim()
+                    ? `${sessionRequest.prompt.trim()}, ${poseText}`
+                    : poseText,
+                }
+              : sessionRequest;
+
             try {
-              const [url, init] = buildRequest(sessionRequest, seed, reference);
+              const [url, init] = buildRequest(shotRequest, seed, reference);
 
               // スタブのときも組み立ては同じところを通し、送る直前で差し替える。
               // こうすると「実際に送られるはずのもの」がそのまま記録される

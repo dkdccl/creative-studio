@@ -123,9 +123,14 @@ export function GenerationPlan({
   referenceMode: ReferenceMode;
   onReferenceModeChange: (mode: ReferenceMode) => void;
 }) {
-  // rotate は参考画像で枚数を増やさない。1 枚ごとに参考画像を切り替える
+  // perPose は 1 周で各ポーズ 1 枚ずつ（枚数の指定は使わない）
+  const perPose = referenceCount > 0 && referenceMode === 'perPose';
   const multiplying = referenceCount > 0 && referenceMode === 'multiply';
-  const perSession = multiplying ? count * referenceCount : count;
+  const perSession = perPose
+    ? referenceCount
+    : multiplying
+      ? count * referenceCount
+      : count;
   const total = perSession * sessions;
   const seconds = total * SECONDS_PER_IMAGE;
 
@@ -172,14 +177,19 @@ export function GenerationPlan({
               {(
                 [
                   [
+                    'perPose',
+                    '各ポーズ 1 枚ずつ × 繰り返す',
+                    `合計 ${referenceCount * sessions} 枚。1 回で ${referenceCount} 種を 1 枚ずつ作り、それを ${sessions} 回くり返します（回ごとに変化が付きます）`,
+                  ],
+                  [
                     'rotate',
                     '1 枚ごとに切り替える',
-                    `合計 ${count * sessions} 枚。参考画像を 1 枚ずつ配り替えて、似せた絵を作ります`,
+                    `合計 ${count * sessions} 枚。枚数は自分で決め、参考画像を 1 枚ずつ配り替えます`,
                   ],
                   [
                     'multiply',
                     '参考画像ごとにまとめて作る',
-                    `合計 ${count * referenceCount * sessions} 枚。参考画像 1 枚につき ${count} 枚ずつ作ります`,
+                    `合計 ${count * referenceCount * sessions} 枚。同じポーズが ${count} 枚続きます`,
                   ],
                 ] as const
               ).map(([mode, label, hint]) => (
@@ -202,7 +212,9 @@ export function GenerationPlan({
               ))}
             </div>
             <p className="mt-2 text-[11px] text-violet-200/40">
-              切り替えは山札を混ぜて配る方式なので、同じ参考画像が続けて出ません。
+              {perPose
+                ? '上の「1 回の生成枚数」は使いません。1 回の枚数は参考画像の数になります。'
+                : '切り替えは山札を混ぜて配る方式なので、同じ参考画像が続けて出ません。'}
             </p>
           </div>
         )}
@@ -345,7 +357,9 @@ export function GenerationPlan({
           <div className="flex gap-2 sm:col-span-2">
             <dt className="text-violet-200/60">合計</dt>
             <dd className="font-bold text-white">
-              {multiplying
+              {perPose
+                ? `参考 ${referenceCount} 枚 × ${sessions} 回 = ${total} 枚（1 回で各ポーズ 1 枚ずつ）`
+                : multiplying
                 ? `${count} 枚 × 参考 ${referenceCount} 枚 × ${sessions} 回 = ${total} 枚`
                 : `${count} 枚 × ${sessions} 回 = ${total} 枚`}
             </dd>

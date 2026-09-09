@@ -127,19 +127,34 @@ export const ANGLES = [
   'confident direct look',
 ] as const;
 
-/** 表情・ムード */
+/**
+ * 表情・ムード。
+ *
+ * 常に笑顔にするため、すべて笑顔を前提にした言い方でそろえる。
+ * 「sultry」「mysterious」のような笑っていない表情を混ぜると、
+ * あとから足す笑顔の指定と打ち消し合って効きが読めなくなる。
+ * 笑い方（口元・目元・強さ）だけを振って変化を出す。
+ */
 export const MOODS = [
-  'confident and sensual',
-  'sultry expression',
-  'seductive gaze',
-  'playful and flirty',
-  'intimate mood',
-  'mysterious and alluring',
-  'confident beauty',
-  'inviting expression',
-  'alluring look',
-  'subtle seduction',
+  'bright cheerful smile',
+  'soft gentle smile',
+  'warm friendly smile',
+  'playful smile with sparkling eyes',
+  'relaxed happy smile',
+  'confident smile',
+  'smiling with slightly parted lips',
+  'smiling with eyes narrowed in delight',
+  'candid natural smile',
+  'radiant beaming smile',
 ] as const;
+
+/**
+ * 常に足す笑顔の指定。
+ *
+ * MOODS でも笑顔を選ぶが、モデルは表情を落としがちなので
+ * 仕上げ側にも重ねて入れ、さらに negative で無表情を弾く。
+ */
+export const ALWAYS_SMILING = 'smiling, happy expression, looking at the camera';
 
 /** 背景（屋内） */
 export const INDOOR_BACKGROUNDS = [
@@ -228,6 +243,7 @@ function selectScene(
 
 /** 毎回付ける仕上げの指定 */
 const FINISH = [
+  ALWAYS_SMILING,
   'professional gravure photography',
   'photorealistic, high resolution, sharp focus',
   'natural skin texture, detailed hair',
@@ -251,6 +267,8 @@ export const GRAVURE_NEGATIVE = [
   'blurry, low quality, jpeg artifacts, oversaturated',
   'plastic skin, waxy skin, airbrushed to plastic',
   'cluttered background, crowded beach, many people',
+  // 常に笑顔にするため、笑っていない表情を弾く
+  'expressionless, blank stare, frowning, sad, angry, pouting, serious face',
 ].join(', ');
 
 /** 被写体の指定。年齢を曖昧にしない */
@@ -264,6 +282,12 @@ const SUBJECT = 'a beautiful adult woman in her 20s';
  * 成人であることは SUBJECT 側で必ず言い続ける。
  */
 export type BodyType = 'natural' | 'glamorous';
+
+/**
+ * 既定は glamorous。体型を選ぶ画面は無いので、実際には常にこれが使われる。
+ * natural を残してあるのは、あとから選べるようにしたくなったときのため。
+ */
+export const DEFAULT_BODY_TYPE: BodyType = 'glamorous';
 
 export const BODY_TYPE_LABELS: Record<
   BodyType,
@@ -434,7 +458,7 @@ export function composeGravurePrompt(
     poseMode = 'random',
     manualPose,
     swimwearSize = 'standard',
-    bodyType = 'natural',
+    bodyType = DEFAULT_BODY_TYPE,
     sceneSetting = 'outdoor',
   } = options;
 

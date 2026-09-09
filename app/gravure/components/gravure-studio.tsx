@@ -45,7 +45,7 @@ export default function GravureStudio() {
   const [poseMode, setPoseMode] = useState<PoseMode>('random');
   const [manualPose, setManualPose] = useState<string>(NATURAL_POSES[0]);
   // 参考画像を 1 枚ごとに切り替えるか、参考画像ごとにまとめて作るか
-  const [referenceMode, setReferenceMode] = useState<ReferenceMode>('rotate');
+  const [referenceMode, setReferenceMode] = useState<ReferenceMode>('perPose');
 
   // 画面のプレビューと実際に使うプロンプトを同じにするため、ここで作って持つ
   const regeneratePrompts = useCallback(
