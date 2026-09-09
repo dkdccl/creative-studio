@@ -303,6 +303,9 @@ export const BODY_TYPE_LABELS: Record<
   },
 };
 
+export const GLAMOROUS_BODY =
+  'glamorous curvy figure, hourglass proportions, toned waist, long legs, elegant posture';
+
 const BODY_DESCRIPTIONS: Record<BodyType, string> = {
   natural: '',
   glamorous:
@@ -615,4 +618,25 @@ export function composeGravurePrompts(
   random: () => number = Math.random,
 ): string[] {
   return composeGravureShots(sessions, options, random).map((s) => s.prompt);
+}
+
+/**
+ * どの経路のプロンプトにも、常に効かせたい指定を足す。
+ *
+ * 笑顔と体型は composeGravurePrompt の中でも入れているが、そちらは
+ * 「自動生成」を選んだときしか通らない。画面で自分でプロンプトを
+ * 書いた場合（毎回同じ／テーマを足す）は通らないので、送る直前に
+ * ここを通して必ず付くようにする。
+ *
+ * 既に入っている語は足さない。同じことを二度書いても効きが強く
+ * なるわけではなく、プロンプトが長くなるほど 1 語あたりは薄まる。
+ */
+export function withAlwaysOn(prompt: string): string {
+  const body = prompt.trim();
+  const parts = body ? [body] : [];
+
+  if (!/smil/i.test(body)) parts.push(ALWAYS_SMILING);
+  if (!body.includes('glamorous curvy figure')) parts.push(GLAMOROUS_BODY);
+
+  return parts.join(', ');
 }

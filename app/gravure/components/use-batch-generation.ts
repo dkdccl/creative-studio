@@ -11,7 +11,7 @@ import {
   type GravureShot,
   type PromptSettings,
 } from '@/lib/gravure';
-import { buildReferenceSequence } from '@/lib/gravure-prompt';
+import { buildReferenceSequence, withAlwaysOn } from '@/lib/gravure-prompt';
 import { poseDescriptionForFileName } from '@/lib/poses';
 import { isStubMode, stubGenerate } from '@/lib/gravure-stub';
 import { isDesktop, nextVolumeNumber, saveGravureImage } from '@/lib/filesystem';
@@ -24,9 +24,12 @@ export type BatchStatus = 'idle' | 'running' | 'done' | 'cancelled';
  * perPose … 1 回で各ポーズを 1 枚ずつ作る。それを回数ぶん繰り返す。
  *           1 周ごとにテーマと種が変わるので、同じポーズでも違う絵になる。
  * rotate  … 1 枚ごとに参考画像を配り替える。枚数は自分で決める。
- * multiply… 参考画像 1 枚につき指定枚数ずつまとめて作る（同じポーズが続く）。
+ *
+ * どちらも山札を混ぜて配るので、同じポーズが続けて出ない。
+ * 「参考画像 1 枚につき N 枚まとめて作る」方式は、同じポーズが
+ * かたまって出てしまうため用意していない。
  */
-export type ReferenceMode = 'perPose' | 'rotate' | 'multiply';
+export type ReferenceMode = 'perPose' | 'rotate';
 
 /** 一括生成の指示。枚数 × 回数ぶんを順番に作る */
 export interface StartOptions {
@@ -202,22 +205,17 @@ export function useBatchGeneration() {
       // img2img は参考画像 1 枚につき count 枚ずつ作る。txt2img は参考画像なしの 1 巡
       const usingReferences = request.mode === 'img2img' && references.length > 0;
 
-      // perPose は 1 周で各ポーズを 1 枚ずつ。順番は山札を混ぜて決める。
-      // multiply だけは参考画像ごとに count 枚まとめて作る（同じポーズが続く）
+      // perPose は 1 周で各ポーズを 1 枚ずつ。順番は山札を混ぜて決める
       const perPose = usingReferences && referenceMode === 'perPose';
-      const passes: (File | null)[] =
-        usingReferences && referenceMode === 'multiply' ? references : [null];
       // perPose の 1 周は参考画像の数。枚数の指定は使わない
-      const shotsPerPass = perPose ? references.length : count;
-      const perSession = shotsPerPass * passes.length;
+      const perSession = perPose ? references.length : count;
       const grandTotal = perSession * sessions;
 
       // 配り替える並び。山札を混ぜて配るので、続けて同じ参考画像にならない。
       // 山札 1 巡ぶんが 1 周にそろうので、perPose では各周に全ポーズが 1 枚ずつ入る
-      const rotation =
-        usingReferences && referenceMode !== 'multiply'
-          ? buildReferenceSequence(references.length, grandTotal)
-          : null;
+      const rotation = usingReferences
+        ? buildReferenceSequence(references.length, grandTotal)
+        : null;
 
       // 前回ぶんは破棄してから始める
       releaseUrls();
@@ -261,20 +259,15 @@ export function useBatchGeneration() {
             ? { ...request, prompt: withTheme(request.prompt, theme) }
             : request;
 
-        for (let pass = 0; pass < passes.length; pass += 1) {
-          for (let i = 0; i < shotsPerPass; i += 1) {
+        {
+          for (let i = 0; i < perSession; i += 1) {
             if (controller.signal.aborted) break outer;
 
-            // rotate は通し番号で配り、multiply は pass ごとに固定する
-            const rotated = rotation?.[ordinal];
-            const reference = rotation
-              ? references[(rotated ?? 1) - 1]
-              : passes[pass];
-            const referenceIndex = rotation
-              ? rotated
-              : passes[pass]
-                ? pass + 1
-                : undefined;
+            // 参考画像は通し番号で配る。山札方式なので続けて同じにならない
+            const referenceIndex = rotation?.[ordinal];
+            const reference = referenceIndex
+              ? references[referenceIndex - 1]
+              : null;
 
             const index = i + 1;
             // 同じ種だと同じ絵になるので 1 枚ずつずらす。
@@ -287,14 +280,17 @@ export function useBatchGeneration() {
             const poseText = reference
               ? poseDescriptionForFileName(reference.name)
               : undefined;
-            const shotRequest = poseText
-              ? {
-                  ...sessionRequest,
-                  prompt: sessionRequest.prompt.trim()
-                    ? `${sessionRequest.prompt.trim()}, ${poseText}`
-                    : poseText,
-                }
-              : sessionRequest;
+            const withPose = poseText
+              ? sessionRequest.prompt.trim()
+                ? `${sessionRequest.prompt.trim()}, ${poseText}`
+                : poseText
+              : sessionRequest.prompt;
+
+            // 笑顔と体型は、どのモードで書いたプロンプトにも必ず付ける
+            const shotRequest = {
+              ...sessionRequest,
+              prompt: withAlwaysOn(withPose),
+            };
 
             try {
               const [url, init] = buildRequest(shotRequest, seed, reference);
@@ -333,7 +329,7 @@ export function useBatchGeneration() {
               setShots((prev) => [
                 ...prev,
                 {
-                  id: `${Date.now()}-${session}-${pass}-${index}`,
+                  id: `${Date.now()}-${session}-${index}`,
                   index,
                   referenceIndex,
                   session,

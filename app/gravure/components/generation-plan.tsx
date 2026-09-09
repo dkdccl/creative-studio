@@ -125,12 +125,7 @@ export function GenerationPlan({
 }) {
   // perPose は 1 周で各ポーズ 1 枚ずつ（枚数の指定は使わない）
   const perPose = referenceCount > 0 && referenceMode === 'perPose';
-  const multiplying = referenceCount > 0 && referenceMode === 'multiply';
-  const perSession = perPose
-    ? referenceCount
-    : multiplying
-      ? count * referenceCount
-      : count;
+  const perSession = perPose ? referenceCount : count;
   const total = perSession * sessions;
   const seconds = total * SECONDS_PER_IMAGE;
 
@@ -185,11 +180,6 @@ export function GenerationPlan({
                     'rotate',
                     '1 枚ごとに切り替える',
                     `合計 ${count * sessions} 枚。枚数は自分で決め、参考画像を 1 枚ずつ配り替えます`,
-                  ],
-                  [
-                    'multiply',
-                    '参考画像ごとにまとめて作る',
-                    `合計 ${count * referenceCount * sessions} 枚。同じポーズが ${count} 枚続きます`,
                   ],
                 ] as const
               ).map(([mode, label, hint]) => (
@@ -359,8 +349,6 @@ export function GenerationPlan({
             <dd className="font-bold text-white">
               {perPose
                 ? `参考 ${referenceCount} 枚 × ${sessions} 回 = ${total} 枚（1 回で各ポーズ 1 枚ずつ）`
-                : multiplying
-                ? `${count} 枚 × 参考 ${referenceCount} 枚 × ${sessions} 回 = ${total} 枚`
                 : `${count} 枚 × ${sessions} 回 = ${total} 枚`}
             </dd>
           </div>
