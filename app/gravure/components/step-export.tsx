@@ -300,12 +300,19 @@ export function StepExport({
           </div>
         )}
 
-        {pageMode === 'a4' && a4NeedsUpscale && (
+        {/* 引き伸ばしが効くのは A4 と KDP 判型のとき。
+            Kindle 向けは画素数をそのまま使うので出さない */}
+        {((pageMode === 'a4' && a4NeedsUpscale) ||
+          (pageMode === 'kdp' && kdpSize !== null && kdpSize.dpi < KDP_MIN_DPI)) && (
           <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-950/20 px-4 py-3">
             <p className="text-xs text-amber-100/80">
-              A4 では {TARGET_DPI} DPI に届きません。届かせるには{' '}
-              {Math.ceil((sample?.width ?? 0) * (TARGET_DPI / Math.max(1, a4EffectiveDpi)))}
-              px 幅の元画像が必要ですが、FLUX.2 の上限は 1920px です。
+              {pageMode === 'a4'
+                ? `A4 では ${TARGET_DPI} DPI に届きません。届かせるには ${Math.ceil(
+                    (sample?.width ?? 0) * (TARGET_DPI / Math.max(1, a4EffectiveDpi)),
+                  )}px 幅の元画像が必要ですが、FLUX.2 の上限は 1920px です。`
+                : `この判型では ${TARGET_DPI} DPI に届きません。届かせるには ${Math.ceil(
+                    (sample?.width ?? 0) * (TARGET_DPI / Math.max(1, kdpSize?.dpi ?? 1)),
+                  )}px 幅の元画像が必要ですが、FLUX.2 の上限は 1920px です。`}
             </p>
             <label className="mt-2 flex cursor-pointer items-start gap-2">
               <input
