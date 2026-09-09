@@ -65,14 +65,16 @@ export function StepBatch({
     isRunning,
   } = batch;
 
-  // rotate は参考画像で枚数を増やさない。1 枚ごとに参考画像を切り替える
-  const multiplying =
-    settings.mode === 'img2img' &&
-    references.length > 0 &&
-    referenceMode === 'multiply';
-  const perSession = multiplying ? count * references.length : count;
-  const planned = perSession * sessions;
   const usingReferences = settings.mode === 'img2img' && references.length > 0;
+  // perPose は 1 周で各ポーズ 1 枚ずつ（枚数の指定は使わない）
+  const perPose = usingReferences && referenceMode === 'perPose';
+  const multiplying = usingReferences && referenceMode === 'multiply';
+  const perSession = perPose
+    ? references.length
+    : multiplying
+      ? count * references.length
+      : count;
+  const planned = perSession * sessions;
   const denominator = total || planned;
   const percent = denominator === 0 ? 0 : (completed / denominator) * 100;
   const remainingSeconds = Math.max(0, denominator - completed) * SECONDS_PER_IMAGE;
@@ -205,13 +207,15 @@ export function StepBatch({
     <StepShell
       step={2}
       title="一括生成"
-      description={`${count} 枚 × ${sessions} 回${
-        multiplying ? ` × 参考 ${references.length} 枚` : ''
-      } = 合計 ${planned} 枚を順番に生成します。${
-        usingReferences && !multiplying
-          ? `参考画像 ${references.length} 枚を 1 枚ごとに切り替えます。`
-          : ''
-      }途中で止められます。`}
+      description={
+        perPose
+          ? `参考画像 ${references.length} 種を 1 枚ずつ作る周を ${sessions} 回くり返し、合計 ${planned} 枚を生成します。途中で止められます。`
+          : `${count} 枚 × ${sessions} 回${
+              multiplying ? ` × 参考 ${references.length} 枚` : ''
+            } = 合計 ${planned} 枚を順番に生成します。${
+              usingReferences ? `参考画像 ${references.length} 枚を 1 枚ごとに切り替えます。` : ''
+            }途中で止められます。`
+      }
     >
       {isStubMode && (
         <p className="mb-4 rounded-xl border border-amber-500/50 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
@@ -228,8 +232,11 @@ export function StepBatch({
               <div className="flex gap-2">
                 <dt className="text-violet-200/50">枚数</dt>
                 <dd className="font-bold text-white">
-                  {planned} 枚（{count} 枚 × {sessions} 回
-                  {multiplying ? ` × 参考 ${references.length} 枚` : ''}）
+                  {perPose
+                    ? `${planned} 枚（参考 ${references.length} 種 × ${sessions} 回）`
+                    : `${planned} 枚（${count} 枚 × ${sessions} 回${
+                        multiplying ? ` × 参考 ${references.length} 枚` : ''
+                      }）`}
                 </dd>
               </div>
               {usingReferences && (
@@ -237,7 +244,11 @@ export function StepBatch({
                   <dt className="text-violet-200/50">参考画像</dt>
                   <dd className="font-bold text-white">
                     {references.length} 枚を
-                    {multiplying ? `それぞれ ${count} 枚ずつ` : '1 枚ごとに切り替え'}
+                    {perPose
+                      ? '1 周で 1 枚ずつ'
+                      : multiplying
+                        ? `それぞれ ${count} 枚ずつ`
+                        : '1 枚ごとに切り替え'}
                   </dd>
                 </div>
               )}

@@ -20,6 +20,8 @@ import {
 import { DeleteConfirmModal } from './delete-confirm-modal';
 import { DangerButton, ErrorNote, SecondaryButton } from './ui';
 
+import { POSE_REFERENCES, loadPoseFiles, poseImageUrl } from '@/lib/poses';
+
 /** 「1.2 MB」のように読める形にする */
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -225,6 +227,36 @@ export function ReferenceUpload({
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // 組み込みポーズ（public/poses/）の読み込み状態
+  const [loadingPoses, setLoadingPoses] = useState(false);
+  const [showPoses, setShowPoses] = useState(false);
+  // どのポーズの画像が置かれているか。file 名 → あるかどうか
+  const [poseFound, setPoseFound] = useState<Record<string, boolean>>({});
+
+  // 一覧を開いたときに、画像が置かれているかだけ見に行く
+  useEffect(() => {
+    if (!showPoses) return;
+    let alive = true;
+
+    (async () => {
+      const found: Record<string, boolean> = {};
+      for (const pose of POSE_REFERENCES) {
+        try {
+          const response = await fetch(poseImageUrl(pose), { method: 'HEAD' });
+          found[pose.file] =
+            response.ok &&
+            (response.headers.get('content-type') ?? '').startsWith('image/');
+        } catch {
+          found[pose.file] = false;
+        }
+      }
+      if (alive) setPoseFound(found);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [showPoses]);
 
   // --- 取っておく参考画像 ---------------------------------------
   // 生成画像は保存しないので、Supabase の容量を使うのはここだけ
@@ -360,6 +392,53 @@ export function ReferenceUpload({
     if (inputRef.current) inputRef.current.value = '';
   }
 
+  /**
+   * public/poses/ に置いた組み込みポーズを取り込む。
+   *
+   * 手で選んだ画像と同じ扱いにするため、参考画像の一覧へ足すだけにする。
+   * 名前が pose_00N.jpg のままなら、生成時にポーズ説明も自動で付く。
+   */
+  async function loadBuiltInPoses() {
+    setLoadingPoses(true);
+    setError(null);
+    try {
+      const files = await loadPoseFiles();
+      if (files.length === 0) {
+        setError(
+          `組み込みポーズの画像が見つかりません。public/poses/ に ${POSE_REFERENCES[0].file} などを置いてください。`,
+        );
+        return;
+      }
+
+      // 既に入っているものは足さない（二重に入れても意味がない）
+      const existing = new Set(value.map((file) => file.name));
+      const adding = files.filter((file) => !existing.has(file.name));
+      const room = MAX_REFERENCES - value.length;
+
+      if (adding.length === 0) {
+        setError('組み込みポーズはすでに読み込み済みです。');
+        return;
+      }
+      if (room <= 0) {
+        setError(`参考画像は ${MAX_REFERENCES} 枚までです。`);
+        return;
+      }
+
+      onChange([...value, ...adding.slice(0, room)]);
+      if (adding.length > room) {
+        setError(`${MAX_REFERENCES} 枚を超えるぶんは取り込みませんでした。`);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `組み込みポーズを読み込めませんでした: ${err.message}`
+          : '組み込みポーズを読み込めませんでした。',
+      );
+    } finally {
+      setLoadingPoses(false);
+    }
+  }
+
   function move(index: number, direction: -1 | 1) {
     const next = [...value];
     const target = index + direction;
@@ -404,6 +483,66 @@ export function ReferenceUpload({
         >
           ファイルを選ぶ
         </SecondaryButton>
+
+        {/* public/poses/ に置いた組み込みポーズをまとめて取り込む */}
+        <div className="mt-3">
+          <SecondaryButton
+            type="button"
+            className="px-4 py-2 text-xs"
+            onClick={() => void loadBuiltInPoses()}
+            disabled={loadingPoses || value.length >= MAX_REFERENCES}
+          >
+            {loadingPoses
+              ? '読み込み中…'
+              : `⭐ 組み込みポーズを読み込む（${POSE_REFERENCES.length} 種）`}
+          </SecondaryButton>
+          <button
+            type="button"
+            onClick={() => setShowPoses((open) => !open)}
+            className="ml-2 text-[11px] font-bold text-violet-200/70 underline underline-offset-2 transition-colors hover:text-white"
+          >
+            {showPoses ? '一覧を閉じる' : '既定のポーズ一覧を見る'}
+          </button>
+
+          <p className="mt-1 text-[11px] text-violet-200/40">
+            public/poses/ の画像を参考画像として取り込みます。
+            取り込むと、生成時にポーズの説明もプロンプトへ自動で足されます。
+          </p>
+
+          {showPoses && (
+            <ol className="mt-2 space-y-2 rounded-xl border border-violet-400/20 bg-violet-950/40 p-3 text-left">
+              {POSE_REFERENCES.map((pose) => {
+                const found = poseFound[pose.file];
+                return (
+                  <li key={pose.id} className="text-[11px] leading-relaxed">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span className="font-bold text-violet-50">
+                        {pose.id}. {pose.label}
+                      </span>
+                      <code className="text-violet-200/50">{pose.file}</code>
+                      <span
+                        className={
+                          found === undefined
+                            ? 'text-violet-200/40'
+                            : found
+                              ? 'text-emerald-300'
+                              : 'text-amber-300'
+                        }
+                      >
+                        {found === undefined
+                          ? '確認中…'
+                          : found
+                            ? '✅ 配置済み'
+                            : '⚠ 未配置'}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-violet-100/60">{pose.description}</p>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
       </div>
 
       <input
