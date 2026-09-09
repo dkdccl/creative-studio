@@ -48,7 +48,9 @@ export interface PdfOptions {
  * 補間なしの本物の 300 DPI が要る場合は native-300dpi を選ぶ。
  */
 export const DEFAULT_PDF_OPTIONS: PdfOptions = {
-  pageMode: 'kdp',
+  // Kindle への入稿が主な用途なので、既定はそちらにする。
+  // 選び忘れると別の判型で書き出してしまうため
+  pageMode: 'kindle',
   kdpFormat: DEFAULT_KDP_FORMAT,
   upscaleToTargetDpi: true,
 };
