@@ -23,6 +23,8 @@ import {
   SecondaryButton,
   StepShell,
 } from './ui';
+import type { PosePairing } from '@/lib/poses';
+
 import type { ReferenceMode, useBatchGeneration } from './use-batch-generation';
 
 type Batch = ReturnType<typeof useBatchGeneration>;
@@ -34,6 +36,7 @@ export function StepBatch({
   themes,
   sessionPrompts,
   referenceMode,
+  posePairing,
   settings,
   references,
   onNext,
@@ -44,6 +47,7 @@ export function StepBatch({
   themes: string[];
   sessionPrompts: string[];
   referenceMode: ReferenceMode;
+  posePairing: PosePairing;
   settings: PromptSettings;
   references: File[];
   onNext: () => void;
@@ -100,6 +104,7 @@ export function StepBatch({
       themes,
       sessionPrompts,
       referenceMode,
+      posePairing,
     });
   }
 

@@ -226,3 +226,58 @@ export async function loadPoseFiles(): Promise<File[]> {
 
   return files;
 }
+
+/**
+ * 参考画像のポーズをどう扱うか。
+ *
+ * same  … 参考画像と同じポーズの説明を足す。画像と言葉が一致するので
+ *         再現度が上がる（そのぶん参考画像に近い絵になる）。
+ * shift … わざと別のポーズの説明を足す。参考画像からは人物の雰囲気を
+ *         受け取り、姿勢だけ動かしたいときに使う。
+ *
+ * shift がどれだけ効くかはモデル次第。ストレングスを送れないモデル
+ * （FLUX.2 [klein]）では参考画像が構図を支配するので、言葉で押しても
+ * あまり動かない。ストレングス対応のモデルを選ぶこと。
+ */
+export type PosePairing = 'same' | 'shift';
+
+export const POSE_PAIRING_LABELS: Record<
+  PosePairing,
+  { label: string; hint: string }
+> = {
+  same: {
+    label: 'そのまま写す',
+    hint: '参考画像と同じポーズにします。再現度は高く、参考画像に近い絵になります',
+  },
+  shift: {
+    label: '別のポーズにする',
+    hint: '参考画像から雰囲気だけ受け取り、姿勢は別のものにします（ストレングス対応モデル向け）',
+  },
+};
+
+/**
+ * その 1 枚に足すポーズ説明を決める。
+ *
+ * shift のときは必ず参考画像とは別のポーズを選ぶ。ずらす量を
+ * 1〜(件数-1) に収めているので、一周して元に戻ることがない。
+ */
+export function poseDescriptionFor(
+  fileName: string,
+  pairing: PosePairing,
+  ordinal: number,
+): string | undefined {
+  const count = POSE_REFERENCES.length;
+  const index = POSE_REFERENCES.findIndex((pose) => pose.file === fileName);
+
+  if (pairing === 'same') {
+    return index === -1 ? undefined : POSE_REFERENCES[index].description;
+  }
+
+  if (count === 0) return undefined;
+  if (count === 1) return undefined; // ずらす先が無い
+
+  // 説明の無いファイルでも、どれかのポーズを当てて姿勢を指示する
+  const base = index === -1 ? Math.abs(ordinal) % count : index;
+  const offset = 1 + (Math.abs(ordinal) % (count - 1));
+  return POSE_REFERENCES[(base + offset) % count].description;
+}

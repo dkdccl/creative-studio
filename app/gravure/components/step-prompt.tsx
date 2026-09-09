@@ -15,6 +15,7 @@ import {
 } from '@/lib/gravure';
 
 import type { PoseMode } from '@/lib/gravure-prompt';
+import type { PosePairing } from '@/lib/poses';
 
 import type { ReferenceMode } from './use-batch-generation';
 
@@ -55,6 +56,8 @@ export function StepPrompt({
   onManualPoseChange,
   referenceMode,
   onReferenceModeChange,
+  posePairing,
+  onPosePairingChange,
   references,
   onReferencesChange,
   onNext,
@@ -77,6 +80,8 @@ export function StepPrompt({
   onManualPoseChange: (pose: string) => void;
   referenceMode: ReferenceMode;
   onReferenceModeChange: (mode: ReferenceMode) => void;
+  posePairing: PosePairing;
+  onPosePairingChange: (pairing: PosePairing) => void;
   references: File[];
   onReferencesChange: (files: File[]) => void;
   onNext: () => void;
@@ -306,6 +311,8 @@ export function StepPrompt({
         referenceCount={isImg2Img ? references.length : 0}
         referenceMode={referenceMode}
         onReferenceModeChange={onReferenceModeChange}
+        posePairing={posePairing}
+        onPosePairingChange={onPosePairingChange}
       />
 
       {/* img2img は出力サイズを参考画像から引き継ぐので、ここでは触らない */}

@@ -12,7 +12,7 @@ import {
   type PromptSettings,
 } from '@/lib/gravure';
 import { buildReferenceSequence, withAlwaysOn } from '@/lib/gravure-prompt';
-import { poseDescriptionForFileName } from '@/lib/poses';
+import { poseDescriptionFor, type PosePairing } from '@/lib/poses';
 import { isStubMode, stubGenerate } from '@/lib/gravure-stub';
 import { isDesktop, nextVolumeNumber, saveGravureImage } from '@/lib/filesystem';
 
@@ -47,6 +47,8 @@ export interface StartOptions {
    * multiply は参考画像 1 枚につき指定枚数ずつ作る（合計は 枚数 × 参考数 × 回数）。
    */
   referenceMode?: ReferenceMode;
+  /** 参考画像と同じポーズにするか、別のポーズにするか */
+  posePairing?: PosePairing;
   /** セッションごとにプロンプトへ足すテーマ。空なら毎回同じ */
   themes?: string[];
   /**
@@ -201,6 +203,7 @@ export function useBatchGeneration() {
       themes = [],
       sessionPrompts = [],
       referenceMode = 'perPose',
+      posePairing = 'same',
     }: StartOptions) => {
       // img2img は参考画像 1 枚につき count 枚ずつ作る。txt2img は参考画像なしの 1 巡
       const usingReferences = request.mode === 'img2img' && references.length > 0;
@@ -278,7 +281,7 @@ export function useBatchGeneration() {
             // 組み込みのポーズ画像なら、同じ内容を言葉でも重ねて指定する。
             // 参考画像だけだと構図は寄っても手の位置や視線が流れるため
             const poseText = reference
-              ? poseDescriptionForFileName(reference.name)
+              ? poseDescriptionFor(reference.name, posePairing, ordinal)
               : undefined;
             const withPose = poseText
               ? sessionRequest.prompt.trim()

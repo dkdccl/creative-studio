@@ -18,6 +18,8 @@ import {
 } from '@/lib/gravure-prompt';
 
 import type { PromptMode } from './generation-plan';
+import type { PosePairing } from '@/lib/poses';
+
 import type { ReferenceMode } from './use-batch-generation';
 import { StepBatch } from './step-batch';
 import { StepExport } from './step-export';
@@ -46,6 +48,8 @@ export default function GravureStudio() {
   const [manualPose, setManualPose] = useState<string>(NATURAL_POSES[0]);
   // 参考画像を 1 枚ごとに切り替えるか、参考画像ごとにまとめて作るか
   const [referenceMode, setReferenceMode] = useState<ReferenceMode>('perPose');
+  // 参考画像と同じポーズにするか、別のポーズにするか
+  const [posePairing, setPosePairing] = useState<PosePairing>('same');
 
   // 画面のプレビューと実際に使うプロンプトを同じにするため、ここで作って持つ
   const regeneratePrompts = useCallback(
@@ -108,6 +112,8 @@ export default function GravureStudio() {
           onManualPoseChange={setManualPose}
           referenceMode={referenceMode}
           onReferenceModeChange={setReferenceMode}
+          posePairing={posePairing}
+          onPosePairingChange={setPosePairing}
           references={references}
           onReferencesChange={setReferences}
           onNext={() => setStep(2)}
@@ -122,6 +128,7 @@ export default function GravureStudio() {
           themes={promptMode === 'themes' ? themes : []}
           sessionPrompts={promptMode === 'auto' ? autoPrompts : []}
           referenceMode={referenceMode}
+          posePairing={posePairing}
           settings={settings}
           references={references}
           onNext={() => setStep(3)}
