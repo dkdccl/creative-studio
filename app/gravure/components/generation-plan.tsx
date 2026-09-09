@@ -17,6 +17,8 @@ import {
   type PoseMode,
 } from '@/lib/gravure-prompt';
 
+import { POSE_PAIRING_LABELS, type PosePairing } from '@/lib/poses';
+
 import type { ReferenceMode } from './use-batch-generation';
 
 import { Card, SecondaryButton, Select, TextInput } from './ui';
@@ -104,6 +106,8 @@ export function GenerationPlan({
   referenceCount,
   referenceMode,
   onReferenceModeChange,
+  posePairing,
+  onPosePairingChange,
 }: {
   count: number;
   onCountChange: (value: number) => void;
@@ -122,6 +126,8 @@ export function GenerationPlan({
   referenceCount: number;
   referenceMode: ReferenceMode;
   onReferenceModeChange: (mode: ReferenceMode) => void;
+  posePairing: PosePairing;
+  onPosePairingChange: (pairing: PosePairing) => void;
 }) {
   // perPose は 1 周で各ポーズ 1 枚ずつ（枚数の指定は使わない）
   const perPose = referenceCount > 0 && referenceMode === 'perPose';
@@ -201,6 +207,42 @@ export function GenerationPlan({
                 </label>
               ))}
             </div>
+            {/* 参考画像のポーズをそのまま使うか、別のポーズに動かすか */}
+            <fieldset className="mt-3 rounded-xl border border-violet-400/20 p-3">
+              <legend className="px-1 text-xs font-bold text-violet-50">
+                参考画像のポーズ
+              </legend>
+              <div className="space-y-1.5">
+                {(Object.keys(POSE_PAIRING_LABELS) as PosePairing[]).map((mode) => (
+                  <label key={mode} className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="radio"
+                      name="posePairing"
+                      value={mode}
+                      checked={posePairing === mode}
+                      onChange={() => onPosePairingChange(mode)}
+                      className="mt-0.5 h-4 w-4 accent-violet-500"
+                    />
+                    <span>
+                      <span className="text-xs font-bold text-violet-50">
+                        {POSE_PAIRING_LABELS[mode].label}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-violet-200/50">
+                        {POSE_PAIRING_LABELS[mode].hint}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {posePairing === 'shift' && (
+                <p className="mt-2 text-[11px] text-amber-300/80">
+                  ⚠ 参考画像から離すにはストレングスの指定が要ります。
+                  FLUX.2 [klein] はストレングスを送れないため、
+                  ポーズがあまり動かないことがあります。
+                </p>
+              )}
+            </fieldset>
+
             <p className="mt-2 text-[11px] text-violet-200/40">
               {perPose
                 ? '上の「1 回の生成枚数」は使いません。1 回の枚数は参考画像の数になります。'
