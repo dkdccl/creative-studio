@@ -1,4 +1,11 @@
 import type { GravureShot } from './gravure';
+import {
+  DEFAULT_KDP_FORMAT,
+  calculateKdpPageSize,
+  findKdpFormat,
+  mmToPoints,
+  type KdpFormatKey,
+} from './kdp-formats';
 
 /**
  * 生成した JPEG をまとめて 1 つの PDF にする（ブラウザ内で生成）。
@@ -19,10 +26,14 @@ export const TARGET_DPI = 300;
 /** A4（ポイント単位） */
 export const A4 = { width: 595.28, height: 841.89 } as const;
 
-export type PdfPageMode = 'native-300dpi' | 'a4';
+export type PdfPageMode = 'kindle' | 'kdp' | 'native-300dpi' | 'a4';
 
 export interface PdfOptions {
   pageMode: PdfPageMode;
+  /** kdp モードのときの判型 */
+  kdpFormat?: KdpFormatKey;
+  /** kdp モードで手入力の寸法を使うとき（ミリ） */
+  customMm?: { width: number; height: number };
   /**
    * A4 で 300 DPI に足りないぶんを引き伸ばして埋める。
    * 画質が上がるわけではないので既定は false。
@@ -37,9 +48,22 @@ export interface PdfOptions {
  * 補間なしの本物の 300 DPI が要る場合は native-300dpi を選ぶ。
  */
 export const DEFAULT_PDF_OPTIONS: PdfOptions = {
-  pageMode: 'a4',
+  pageMode: 'kdp',
+  kdpFormat: DEFAULT_KDP_FORMAT,
   upscaleToTargetDpi: true,
 };
+
+/** 選ばれている判型の寸法。手入力ならそれを返す */
+export function resolveKdpFormat(options: PdfOptions) {
+  if (options.customMm) {
+    return {
+      name: `手入力 ${options.customMm.width} × ${options.customMm.height}mm`,
+      mm: options.customMm,
+    };
+  }
+  const format = findKdpFormat(options.kdpFormat ?? DEFAULT_KDP_FORMAT);
+  return format ?? findKdpFormat(DEFAULT_KDP_FORMAT)!;
+}
 
 /** ポイント幅に画素数を収めたときの実効 DPI */
 export function dpiFor(pixels: number, points: number): number {
@@ -129,6 +153,68 @@ export async function buildPdf(
   for (const shot of shots) {
     // 画素数は生成時に実測済み。ここで測り直すと未使用の画像が PDF に残る
     const { width: naturalWidth, height: naturalHeight } = shot;
+
+    if (options.pageMode === 'kindle') {
+      // Kindle 電子書籍向け。
+      //
+      // Kindle は端末の画面に合わせてページを拡大縮小するので、
+      // 大事なのは «縦横比が画像と一致していること» と
+      // «ページが極端に小さくないこと» の 2 つ。
+      //
+      // 画素数をそのままポイントとして使う（72 DPI 相当）。こうすると
+      // 縦横比がぴったり合い、ページも A4 前後の常識的な大きさになる。
+      // 以前 43×60mm の極小ページで回転・分割が起きたのはここが原因。
+      const image = await pdf.embedJpg(await shot.blob.arrayBuffer());
+      const page = pdf.addPage([naturalWidth, naturalHeight]);
+
+      // 余白も letterbox も作らず、1 ページ 1 枚で隙間なく敷く
+      page.drawImage(image, {
+        x: 0,
+        y: 0,
+        width: naturalWidth,
+        height: naturalHeight,
+      });
+      minDpi = Math.min(minDpi, dpiFor(naturalWidth, naturalWidth));
+      continue;
+    }
+
+    if (options.pageMode === 'kdp') {
+      const format = resolveKdpFormat(options);
+      const size = calculateKdpPageSize(format, naturalWidth, naturalHeight);
+
+      // pdf-lib はポイントで受け取る。ミリのまま渡すと 1/2.8 の大きさになる
+      const pageWidth = mmToPoints(size.pageMm.width);
+      const pageHeight = mmToPoints(size.pageMm.height);
+
+      // 裁ち落としぶんまで絵で埋めたいので、内側に収めるのではなく全面に敷く。
+      // はみ出したぶんはページの外に出る（＝断裁される）
+      const scale = Math.max(pageWidth / naturalWidth, pageHeight / naturalHeight);
+      const drawWidth = naturalWidth * scale;
+      const drawHeight = naturalHeight * scale;
+
+      // 300 DPI に届かないぶんは、必要なら引き伸ばして埋める
+      const neededWidth = (drawWidth / PT_PER_INCH) * TARGET_DPI;
+      const neededHeight = (drawHeight / PT_PER_INCH) * TARGET_DPI;
+      const shouldUpscale =
+        options.upscaleToTargetDpi && neededWidth > naturalWidth;
+
+      const image = await pdf.embedJpg(
+        shouldUpscale
+          ? await upscaleJpeg(shot.blob, neededWidth, neededHeight)
+          : await shot.blob.arrayBuffer(),
+      );
+
+      const page = pdf.addPage([pageWidth, pageHeight]);
+      page.drawImage(image, {
+        // はみ出すぶんを均等に振って、中央が残るようにする
+        x: (pageWidth - drawWidth) / 2,
+        y: (pageHeight - drawHeight) / 2,
+        width: drawWidth,
+        height: drawHeight,
+      });
+      minDpi = Math.min(minDpi, dpiFor(image.width, drawWidth));
+      continue;
+    }
 
     if (options.pageMode === 'native-300dpi') {
       // 画素数から用紙サイズを逆算するので、常にちょうど 300 DPI になる
