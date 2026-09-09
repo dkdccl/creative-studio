@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 import {
   IMG2IMG_MODELS,
   SECONDS_PER_IMAGE,
@@ -18,7 +20,16 @@ import type { ReferenceMode } from './use-batch-generation';
 
 import { GenerationPlan, type PromptMode } from './generation-plan';
 import { ReferenceUpload } from './reference-upload';
-import { Field, PrimaryButton, Select, StepShell, TextArea, TextInput } from './ui';
+import {
+  ErrorNote,
+  Field,
+  PrimaryButton,
+  SecondaryButton,
+  Select,
+  StepShell,
+  TextArea,
+  TextInput,
+} from './ui';
 
 const TABS: { mode: GenerationMode; label: string; hint: string }[] = [
   { mode: 'txt2img', label: '📝 テキストプロンプト', hint: '文章だけから作ります' },
@@ -70,6 +81,42 @@ export function StepPrompt({
   onReferencesChange: (files: File[]) => void;
   onNext: () => void;
 }) {
+  const [translating, setTranslating] = useState(false);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  const [translateNote, setTranslateNote] = useState<string | null>(null);
+  // 変換前の文章。気に入らなければ戻せるようにしておく
+  const [beforeTranslation, setBeforeTranslation] = useState<string | null>(null);
+
+  /** 日本語で書いたプロンプトを、画像生成に渡せる英語に置き換える */
+  async function translatePrompt() {
+    const text = settings.prompt.trim();
+    if (!text) return;
+
+    setTranslating(true);
+    setTranslateError(null);
+    setTranslateNote(null);
+
+    try {
+      const response = await fetch('/api/gravure/translate-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error ?? `HTTP ${response.status}`);
+
+      setBeforeTranslation(text);
+      set('prompt', data.prompt as string);
+      setTranslateNote('英語に変換しました。必要なら手で直せます。');
+    } catch (err) {
+      setTranslateError(
+        err instanceof Error ? `変換に失敗しました: ${err.message}` : '変換に失敗しました。',
+      );
+    } finally {
+      setTranslating(false);
+    }
+  }
+
   const set = <K extends keyof PromptSettings>(key: K, value: PromptSettings[K]) =>
     onChange({ ...settings, [key]: value });
 
@@ -166,15 +213,49 @@ export function StepPrompt({
 
       <Field
         label="プロンプト"
-        hint={isImg2Img ? '参考画像への追加指示（英語推奨）' : '英語のほうが安定します'}
+        hint={isImg2Img ? '参考画像への追加指示' : '日本語で書いて英語に変換できます'}
       >
         <TextArea
           rows={4}
           value={settings.prompt}
           onChange={(e) => set('prompt', e.target.value)}
-          placeholder="生成したい画像を英語で説明してください"
+          placeholder="日本語でも英語でも構いません。日本語で書いた場合は下のボタンで英語に変換してください"
         />
       </Field>
+
+      {/* 画像モデルは英語のほうが安定するが、毎回英語で書くのは手間なので
+          書いたものをここで置き換える。変換後は自分で直せる */}
+      <div className="-mt-3 flex flex-wrap items-center gap-3">
+        <SecondaryButton
+          type="button"
+          className="px-3 py-1.5 text-xs"
+          onClick={() => void translatePrompt()}
+          disabled={translating || settings.prompt.trim() === ''}
+        >
+          {translating ? '変換中…' : '🇯🇵 → 🇬🇧 英語に変換'}
+        </SecondaryButton>
+        {beforeTranslation !== null && (
+          <SecondaryButton
+            type="button"
+            className="px-3 py-1.5 text-xs"
+            onClick={() => {
+              set('prompt', beforeTranslation);
+              setBeforeTranslation(null);
+              setTranslateNote(null);
+            }}
+          >
+            ↩ 変換前に戻す
+          </SecondaryButton>
+        )}
+        {translateNote && (
+          <span className="text-[11px] text-violet-200/50">{translateNote}</span>
+        )}
+      </div>
+      {translateError && (
+        <div className="-mt-2">
+          <ErrorNote>{translateError}</ErrorNote>
+        </div>
+      )}
 
       <div>
         <Field label="ネガティブプロンプト" hint="描いてほしくない要素">

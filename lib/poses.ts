@@ -151,24 +151,74 @@ export function poseDescriptionForFileName(name: string): string | undefined {
 }
 
 /**
+ * public/poses/ に実際に置かれている画像のファイル名。
+ *
+ * ブラウザからフォルダの中身は見られないので、API に聞く。
+ * こうしておくと、コードを触らずファイルを足すだけでポーズが増える。
+ */
+export async function listPoseFiles(): Promise<string[]> {
+  try {
+    const response = await fetch('/api/gravure/poses');
+    if (!response.ok) return [];
+    const data = (await response.json()) as { files?: string[] };
+    return data.files ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** 画面に出す 1 件ぶん。説明が無いファイルもここに並ぶ */
+export interface PoseEntry {
+  file: string;
+  label: string;
+  /** 説明が書かれていれば入る。無ければ画像だけで似せる */
+  description?: string;
+  /** lib/poses.ts に説明があるか */
+  known: boolean;
+}
+
+/**
+ * 置いてあるファイルと、書いてある説明を突き合わせる。
+ *
+ * 説明があるものは画像と言葉の両方でポーズを指定する。
+ * 説明が無いものは画像だけを手がかりに似せて作る（種や
+ * テーマで変化が付くので、同じ絵の複製にはならない）。
+ */
+export async function listPoseEntries(): Promise<PoseEntry[]> {
+  const files = await listPoseFiles();
+
+  return files.map((file) => {
+    const known = POSE_REFERENCES.find((pose) => pose.file === file);
+    return {
+      file,
+      label: known?.label ?? file,
+      description: known?.description,
+      known: Boolean(known),
+    };
+  });
+}
+
+/**
  * public/poses/ に置いた画像を読み込む。
  *
- * 置かれていないものは飛ばす。全部そろっていなくても、
- * ある枚数だけで回せるようにするため。
+ * 説明が書かれていないファイルも読む。画像だけでも参考として使えるので、
+ * 増やしたぶんをそのまま利用できるようにするため。
+ * 読めないものは飛ばす。
  */
 export async function loadPoseFiles(): Promise<File[]> {
+  const names = await listPoseFiles();
   const files: File[] = [];
 
-  for (const pose of POSE_REFERENCES) {
+  for (const name of names) {
     try {
-      const response = await fetch(poseImageUrl(pose));
+      const response = await fetch(`/poses/${encodeURIComponent(name)}`);
       if (!response.ok) continue;
 
       const blob = await response.blob();
       // 置き忘れたときに README が返ることがあるので、画像かどうか見る
       if (!blob.type.startsWith('image/')) continue;
 
-      files.push(new File([blob], pose.file, { type: blob.type }));
+      files.push(new File([blob], name, { type: blob.type }));
     } catch {
       // 読めないものは飛ばす
     }
