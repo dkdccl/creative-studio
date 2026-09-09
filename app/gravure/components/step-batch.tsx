@@ -68,12 +68,7 @@ export function StepBatch({
   const usingReferences = settings.mode === 'img2img' && references.length > 0;
   // perPose は 1 周で各ポーズ 1 枚ずつ（枚数の指定は使わない）
   const perPose = usingReferences && referenceMode === 'perPose';
-  const multiplying = usingReferences && referenceMode === 'multiply';
-  const perSession = perPose
-    ? references.length
-    : multiplying
-      ? count * references.length
-      : count;
+  const perSession = perPose ? references.length : count;
   const planned = perSession * sessions;
   const denominator = total || planned;
   const percent = denominator === 0 ? 0 : (completed / denominator) * 100;
@@ -210,9 +205,7 @@ export function StepBatch({
       description={
         perPose
           ? `参考画像 ${references.length} 種を 1 枚ずつ作る周を ${sessions} 回くり返し、合計 ${planned} 枚を生成します。途中で止められます。`
-          : `${count} 枚 × ${sessions} 回${
-              multiplying ? ` × 参考 ${references.length} 枚` : ''
-            } = 合計 ${planned} 枚を順番に生成します。${
+          : `${count} 枚 × ${sessions} 回 = 合計 ${planned} 枚を順番に生成します。${
               usingReferences ? `参考画像 ${references.length} 枚を 1 枚ごとに切り替えます。` : ''
             }途中で止められます。`
       }
@@ -234,9 +227,7 @@ export function StepBatch({
                 <dd className="font-bold text-white">
                   {perPose
                     ? `${planned} 枚（参考 ${references.length} 種 × ${sessions} 回）`
-                    : `${planned} 枚（${count} 枚 × ${sessions} 回${
-                        multiplying ? ` × 参考 ${references.length} 枚` : ''
-                      }）`}
+                    : `${planned} 枚（${count} 枚 × ${sessions} 回）`}
                 </dd>
               </div>
               {usingReferences && (
@@ -244,11 +235,7 @@ export function StepBatch({
                   <dt className="text-violet-200/50">参考画像</dt>
                   <dd className="font-bold text-white">
                     {references.length} 枚を
-                    {perPose
-                      ? '1 周で 1 枚ずつ'
-                      : multiplying
-                        ? `それぞれ ${count} 枚ずつ`
-                        : '1 枚ごとに切り替え'}
+                    {perPose ? '1 周で 1 枚ずつ' : '1 枚ごとに切り替え'}
                   </dd>
                 </div>
               )}
