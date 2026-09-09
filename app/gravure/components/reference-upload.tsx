@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ACCEPTED_UPLOAD_TYPES,
@@ -232,24 +232,22 @@ export function ReferenceUpload({
   const [showPoses, setShowPoses] = useState(false);
   // public/poses/ に実際に置かれているファイル
   const [poseEntries, setPoseEntries] = useState<PoseEntry[] | null>(null);
+  // null は確認中。0 なら未配置
+  const poseCount = poseEntries === null ? null : poseEntries.length;
 
-  // 一覧を開いたときに、置かれているファイルを見に行く
+  // 置かれているファイルは最初に見に行く。
+  // 一覧を開いたときだけだと、閉じている間に置かれた画像に気づけない
+  const refreshPoses = useCallback(async () => {
+    try {
+      setPoseEntries(await listPoseEntries());
+    } catch {
+      setPoseEntries([]);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!showPoses) return;
-    let alive = true;
-
-    listPoseEntries()
-      .then((entries) => {
-        if (alive) setPoseEntries(entries);
-      })
-      .catch(() => {
-        if (alive) setPoseEntries([]);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [showPoses]);
+    void refreshPoses();
+  }, [refreshPoses]);
 
   // --- 取っておく参考画像 ---------------------------------------
   // 生成画像は保存しないので、Supabase の容量を使うのはここだけ
@@ -397,9 +395,8 @@ export function ReferenceUpload({
     try {
       const files = await loadPoseFiles();
       if (files.length === 0) {
-        setError(
-          'public/poses/ に画像がありません。JPG / PNG / WebP を置いてください。',
-        );
+        // 置かれていないだけならボタンの下に静かに出す。エラー表示にはしない
+        await refreshPoses();
         return;
       }
 
@@ -418,6 +415,8 @@ export function ReferenceUpload({
       }
 
       onChange([...value, ...adding.slice(0, room)]);
+      // 取り込めたので、古い案内が残らないよう一覧を取り直す
+      await refreshPoses();
       if (adding.length > room) {
         setError(`${MAX_REFERENCES} 枚を超えるぶんは取り込みませんでした。`);
       }
@@ -483,34 +482,45 @@ export function ReferenceUpload({
             type="button"
             className="px-4 py-2 text-xs"
             onClick={() => void loadBuiltInPoses()}
-            disabled={loadingPoses || value.length >= MAX_REFERENCES}
+            disabled={
+              loadingPoses ||
+              value.length >= MAX_REFERENCES ||
+              poseCount === 0
+            }
           >
             {loadingPoses
               ? '読み込み中…'
-              : '⭐ 組み込みポーズを読み込む'}
+              : poseCount === null
+                ? '⭐ 組み込みポーズを確認中…'
+                : `⭐ 組み込みポーズを読み込む（${poseCount} 種）`}
           </SecondaryButton>
-          <button
-            type="button"
-            onClick={() => setShowPoses((open) => !open)}
-            className="ml-2 text-[11px] font-bold text-violet-200/70 underline underline-offset-2 transition-colors hover:text-white"
-          >
-            {showPoses ? '一覧を閉じる' : '既定のポーズ一覧を見る'}
-          </button>
+          {poseCount !== null && poseCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowPoses((open) => !open)}
+              className="ml-2 text-[11px] font-bold text-violet-200/70 underline underline-offset-2 transition-colors hover:text-white"
+            >
+              {showPoses ? '一覧を閉じる' : '既定のポーズ一覧を見る'}
+            </button>
+          )}
 
-          <p className="mt-1 text-[11px] text-violet-200/40">
-            public/poses/ に置いた画像をそのまま取り込みます。ファイルを足せば
-            そのぶん増えます（コードの編集は不要）。説明が書かれているものは
-            言葉でもポーズを指定し、無いものは画像だけを手がかりに似せて作ります。
-          </p>
+          {/* 置かれていないときだけ案内を出す。認識できたら出さない */}
+          {poseCount === 0 ? (
+            <p className="mt-1 text-[11px] text-amber-300/80">
+              public/poses/ に画像がありません。JPG / PNG / WebP を置くと使えます。
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-violet-200/40">
+              public/poses/ に置いた画像をそのまま取り込みます。ファイルを足せば
+              そのぶん増えます（コードの編集は不要）。説明が書かれているものは
+              言葉でもポーズを指定し、無いものは画像だけを手がかりに似せて作ります。
+            </p>
+          )}
 
           {showPoses && (
             <div className="mt-2 rounded-xl border border-violet-400/20 bg-violet-950/40 p-3 text-left">
-              {poseEntries === null ? (
+              {poseEntries === null || poseEntries.length === 0 ? (
                 <p className="text-[11px] text-violet-200/40">確認中…</p>
-              ) : poseEntries.length === 0 ? (
-                <p className="text-[11px] text-amber-300">
-                  public/poses/ に画像がありません。JPG / PNG / WebP を置いてください。
-                </p>
               ) : (
                 <>
                   <p className="mb-2 text-[11px] text-violet-200/50">
